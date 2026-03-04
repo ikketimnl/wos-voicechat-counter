@@ -62,7 +62,7 @@ echo %BLUE% Everything is set up. Time to build the container. %RESET%
 echo.
 
 timeout /t 2 /nobreak >nul
-npm install --omit=dev --no-audit --no-fund --quiet
+call npm install --omit=dev --no-audit --no-fund --quiet
 net start com.docker.service
 docker compose build
 
@@ -88,5 +88,6 @@ echo %MAGNETA% Happy battling! %RESET%
 pause
 
 endlocal
+
 
 
