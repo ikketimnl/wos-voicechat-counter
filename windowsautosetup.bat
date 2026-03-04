@@ -80,7 +80,7 @@ echo pause
 cls
 echo %MAGNETA% ==============================
 echo Installation has successfully finished
-echo ============================== %RESET
+echo ============================== %RESET%
 echo.
 echo %BLUE% You can now start your bot by clicking the start.bat file. %RESET%
 echo.
@@ -88,6 +88,7 @@ echo %MAGNETA% Happy battling! %RESET%
 pause
 
 endlocal
+
 
 
 
