@@ -16,6 +16,7 @@ for /f %%a in ('echo prompt $E ^| cmd') do set "ESC=%%a"
 set "BLUE=%ESC%[34m"
 set "GREEN=%ESC%[32m"
 set "MAGENTA=%ESC%[35m"
+set "RED=%ESC%[31m"
 set "RESET=%ESC%[0m"
 
 echo %MAGENTA%==============================
@@ -35,7 +36,8 @@ cd counterbotVC
 mkdir config
 
 cls
-
+echo.
+echo %RED% CLICK ON THIS WINDOW BEFORE TYPING! %RESET%
 echo.
 echo %BLUE% Now we need some info to create the config %RESET%
 echo.
