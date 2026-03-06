@@ -6,6 +6,7 @@ const say = require('say');
 const { exec, execFile } = require('child_process');
 
 class TTSService {
+
   constructor() {
     this.provider = 'console'; // Default to console logging
     this.audioCache = new Map(); // key -> filePath
@@ -19,12 +20,26 @@ class TTSService {
     this.provider = provider;
   }
 
+  // Detect the first available Windows SAPI voice
+  async getWindowsVoice() {
+    return new Promise((resolve) => {
+      const cmd = `powershell.exe -Command "Add-Type -AssemblyName System.Speech; $s = New-Object System.Speech.Synthesis.SpeechSynthesizer; $s.GetInstalledVoices() | ForEach-Object { $_.VoiceInfo.Name } | Select-Object -First 1"`;
+      exec(cmd, (error, stdout) => {
+        if (error || !stdout.trim()) {
+          resolve(null); // No voice found, will use default
+        } else {
+          resolve(stdout.trim());
+        }
+      });
+    });
+  }
+
   // Cross-platform TTS generation with fallbacks
   async generateCrossPlatformTTS(text, outputFile) {
     try {
-      // Try the say package first
+      // Try the say package first with null voice (uses system default)
       return new Promise((resolve, reject) => {
-        say.export(text, 'Samantha', 1.0, outputFile, (error) => {
+        say.export(text, null, 1.0, outputFile, (error) => {
           if (error) {
             console.warn(`Say package failed: ${error.message}, trying platform-specific fallback...`);
             // Fall back to platform-specific commands
@@ -45,19 +60,24 @@ class TTSService {
   // Platform-specific TTS fallback
   async generatePlatformSpecificTTS(text, outputFile) {
     const platform = this.platform;
-    
+
     try {
       if (platform === 'win32') {
-        // Windows: Use PowerShell with SAPI
-        const command = `powershell.exe -Command "Add-Type -AssemblyName System.Speech; $synthesizer = New-Object System.Speech.Synthesis.SpeechSynthesizer; $synthesizer.SelectVoice('Microsoft Zira Desktop'); $synthesizer.SetOutputToWaveFile('${outputFile}'); $synthesizer.Speak('${text}'); $synthesizer.Dispose()"`;
+        // Windows: detect first available voice dynamically
+        const voice = await this.getWindowsVoice();
+        const selectVoice = voice
+          ? `$synthesizer.SelectVoice('${voice}');`
+          : ''; // Skip SelectVoice if none found — uses system default
+        const command = `powershell.exe -Command "Add-Type -AssemblyName System.Speech; $synthesizer = New-Object System.Speech.Synthesis.SpeechSynthesizer; ${selectVoice} $synthesizer.SetOutputToWaveFile('${outputFile}'); $synthesizer.Speak('${text.replace(/'/g, "''")}'); $synthesizer.Dispose()"`;
         await new Promise((resolve, reject) => {
           exec(command, (error) => {
             if (error) reject(error);
             else resolve();
           });
         });
+
       } else if (platform === 'darwin') {
-        // macOS: Use say command
+        // macOS: Use say command with Samantha (valid here)
         const command = `say -o "${outputFile}" -v "Samantha" -r 170 "${text}"`;
         await new Promise((resolve, reject) => {
           exec(command, (error) => {
@@ -65,6 +85,7 @@ class TTSService {
             else resolve();
           });
         });
+
       } else {
         // Linux: Try espeak, then festival
         try {
@@ -76,7 +97,6 @@ class TTSService {
             });
           });
         } catch (espeakError) {
-          // Fallback to festival
           const command = `echo "${text}" | festival --tts --output "${outputFile}"`;
           await new Promise((resolve, reject) => {
             exec(command, (error) => {
@@ -86,6 +106,7 @@ class TTSService {
           });
         }
       }
+
     } catch (error) {
       throw new Error(`Platform-specific TTS failed for ${platform}: ${error.message}`);
     }
@@ -124,7 +145,7 @@ class TTSService {
       // Generate numbers 1-200
       for (let i = 1; i <= 200; i++) {
         const numberFile = path.join(libraryDir, `${i}.wav`);
-        
+
         // Skip if already exists
         if (fs.existsSync(numberFile)) {
           this.numberLibrary.set(i, numberFile);
@@ -134,19 +155,19 @@ class TTSService {
         // Generate the number using cross-platform TTS with fallbacks
         const rawFile = path.join(libraryDir, `raw_${i}.wav`);
         await this.generateCrossPlatformTTS(`${i}.`, rawFile);
-        
+
         // Pad/truncate to exactly 1.000s with better quality settings
         await runFfmpeg(['-y', '-i', rawFile, '-af', 'apad=pad_dur=1,atrim=0:1', '-ar', '48000', '-ac', '2', '-sample_fmt', 's16', numberFile]);
-        
+
         // Clean up raw file
         try { fs.unlinkSync(rawFile); } catch (_) {}
-        
+
         this.numberLibrary.set(i, numberFile);
       }
 
       this.libraryInitialized = true;
       console.log('✅ Number library initialized!');
-      
+
     } catch (error) {
       console.error('❌ Failed to initialize number library:', error);
       throw error;
@@ -179,15 +200,12 @@ class TTSService {
 
   // Build a stable cache key for a given players/timing configuration
   buildCountdownCacheKey(players) {
-    // Normalize: sort by attackStartTime then name, pick only relevant fields
     const normalized = [...players]
       .map(p => ({ name: String(p.name), t: Number(p.attackStartTime) }))
       .sort((a, b) => (a.t - b.t) || a.name.localeCompare(b.name));
 
-    // Include voice and algo version to avoid cross-version cache collisions
     const payload = {
-      v: 'sync-v5', // Updated version for cross-platform TTS with fallbacks
-      voice: 'Samantha',
+      v: 'sync-v6', // bumped version after voice fix
       rate: 170,
       platform: this.platform,
       players: normalized,
@@ -209,7 +227,6 @@ class TTSService {
       const cacheKey = this.buildCountdownCacheKey(players);
       const cachedPath = this.audioCache.get(cacheKey);
       if (cachedPath && fs.existsSync(cachedPath)) {
-        // Reuse previously generated file
         return createAudioResource(cachedPath);
       }
 
@@ -242,22 +259,18 @@ class TTSService {
       const ts = Date.now();
       const introRaw = path.join(tempDir, `intro_raw_${ts}.wav`);
       const introFile = path.join(tempDir, `intro_${ts}.wav`);
-      
-      // Generate intro with consistent quality
+
       await this.generateCrossPlatformTTS(introScript, introRaw);
-      
-      // Process intro to match library quality
       await runFfmpeg(['-y', '-i', introRaw, '-ar', '48000', '-ac', '2', '-sample_fmt', 's16', introFile]);
       try { fs.unlinkSync(introRaw); } catch (_) {}
 
-      // Use pre-generated number library instead of generating each number
+      // Use pre-generated number library
       const numberFiles = [];
       for (let i = 1; i <= maxTime; i++) {
         const numberFile = this.numberLibrary.get(i);
         if (numberFile && fs.existsSync(numberFile)) {
           numberFiles.push(numberFile);
         } else {
-          // Fallback: generate the number if not in library
           console.warn(`Number ${i} not found in library, generating...`);
           const raw = path.join(tempDir, `raw_${i}_${ts}.wav`);
           const seg = path.join(tempDir, `seg_${i}_${ts}.wav`);
@@ -268,44 +281,32 @@ class TTSService {
         }
       }
 
-      // Create final phrase clip: "Sequence complete."
       const finalRaw = path.join(tempDir, `final_raw_${ts}.wav`);
       const finalWav = path.join(tempDir, `final_${ts}.wav`);
-      
       await this.generateCrossPlatformTTS("Sequence complete.", finalRaw);
-      
-      // Process final phrase to match library quality
       await runFfmpeg(['-y', '-i', finalRaw, '-ar', '48000', '-ac', '2', '-sample_fmt', 's16', finalWav]);
       try { fs.unlinkSync(finalRaw); } catch (_) {}
 
-      // Concat: intro + library numbers + final line
       const listFile = path.join(tempDir, `list_${ts}.txt`);
       const outputFile = path.join(tempDir, `sync_countdown_${cacheKey}.wav`);
+      const concatFiles = [introFile, ...numberFiles, finalWav];
+      fs.writeFileSync(listFile, concatFiles.map(f => `file '${f.replace(/'/g, "\\'")}'`).join('\n'));
 
-      // Ensure intro is consistent format for concat; re-encode intro
-                const introWav = introFile; // Already in WAV format
-
-      const concatFiles = [introWav, ...numberFiles, finalWav];
-      fs.writeFileSync(listFile, concatFiles.map(f => `file '${f.replace(/'/g, "'\\''")}'`).join('\n'));
-
-      // Use better concatenation settings to preserve audio quality
       await runFfmpeg(['-y', '-f', 'concat', '-safe', '0', '-i', listFile, '-c:a', 'pcm_s16le', '-ar', '48000', '-ac', '2', outputFile]);
 
-      // Cleanup intermediates (keep final output for playback)
-      try { fs.unlinkSync(introWav); } catch (_) {}
+      try { fs.unlinkSync(introFile); } catch (_) {}
       try { fs.unlinkSync(finalWav); } catch (_) {}
       try { fs.unlinkSync(listFile); } catch (_) {}
-      // Don't delete library files, but clean up any fallback files
+
       for (const f of numberFiles) {
         if (f.includes(`seg_${ts}`)) {
           try { fs.unlinkSync(f); } catch (_) {}
         }
       }
 
-      // Store in cache and return audio resource for the final file
       this.audioCache.set(cacheKey, outputFile);
-      const audioResource = createAudioResource(outputFile);
-      return audioResource;
+      return createAudioResource(outputFile);
+
     } catch (error) {
       console.error('Synchronized countdown error:', error);
       throw error;
@@ -315,78 +316,40 @@ class TTSService {
   // Local TTS using cross-platform TTS with fallbacks
   async localTTS(text, options = {}) {
     try {
-      const fs = require('fs');
-      const path = require('path');
-      
-      // Create temp directory if it doesn't exist
       const tempDir = path.join(__dirname, '../temp');
       if (!fs.existsSync(tempDir)) {
         fs.mkdirSync(tempDir, { recursive: true });
       }
-      
-      // Generate unique filename
+
       const outputFile = path.join(tempDir, `tts_${Date.now()}.wav`);
-      
-      // Use cross-platform TTS with fallbacks to generate audio
       await this.generateCrossPlatformTTS(text, outputFile);
-      
-      // Wait a bit for file to be written
+
       return new Promise((resolve, reject) => {
         setTimeout(() => {
           if (fs.existsSync(outputFile)) {
-            // Create audio resource from the generated file
             const audioResource = createAudioResource(outputFile);
             resolve(audioResource);
-            
-            // Clean up file after a delay
             setTimeout(() => {
-              try {
-                fs.unlinkSync(outputFile);
-              } catch (cleanupError) {
+              try { fs.unlinkSync(outputFile); } catch (cleanupError) {
                 console.log('Cleanup error (non-critical):', cleanupError.message);
               }
-            }, 10000); // Clean up after 10 seconds
+            }, 10000);
           } else {
             reject(new Error('Audio file was not created'));
           }
         }, 500);
       });
-      
+
     } catch (error) {
       console.error('Local TTS error:', error);
       return this.consoleTTS(text);
     }
   }
 
-  // Google Cloud Text-to-Speech
+  // Google Cloud Text-to-Speech (placeholder)
   async googleTTS(text, options = {}) {
     try {
-      // This is a placeholder for Google Cloud TTS integration
-      // You'll need to:
-      // 1. Set up Google Cloud project
-      // 2. Enable Text-to-Speech API
-      // 3. Set GOOGLE_APPLICATION_CREDENTIALS environment variable
-      // 4. Install @google-cloud/text-to-speech package
-      
       console.log(`🔊 Google TTS: ${text}`);
-      
-      // Example implementation:
-      // const textToSpeech = require('@google-cloud/text-to-speech');
-      // const client = new textToSpeech.TextToSpeechClient();
-      // 
-      // const request = {
-      //   input: { text: text },
-      //   voice: { languageCode: 'en-US', ssmlGender: 'NEUTRAL' },
-      //   audioConfig: { audioEncoding: 'MP3' },
-      // };
-      // 
-      // const [response] = await client.synthesizeSpeech(request);
-      // const audioContent = response.audioContent;
-      // 
-      // // Convert to audio resource
-      // const resource = createAudioResource(Buffer.from(audioContent));
-      // return resource;
-      
       return null;
     } catch (error) {
       console.error('Google TTS error:', error);
@@ -394,32 +357,10 @@ class TTSService {
     }
   }
 
-  // Microsoft Azure Speech Services
+  // Microsoft Azure Speech Services (placeholder)
   async azureTTS(text, options = {}) {
     try {
-      // This is a placeholder for Azure Speech Services integration
-      // You'll need to:
-      // 1. Set up Azure Speech Services
-      // 2. Get subscription key and region
-      // 3. Install microsoft-cognitiveservices-speech-sdk package
-      
       console.log(`🔊 Azure TTS: ${text}`);
-      
-      // Example implementation:
-      // const sdk = require('microsoft-cognitiveservices-speech-sdk');
-      // const speechConfig = sdk.SpeechConfig.fromSubscription(
-      //   process.env.AZURE_SPEECH_KEY,
-      //   process.env.AZURE_SPEECH_REGION
-      // );
-      // 
-      // const synthesizer = new sdk.SpeechSynthesizer(speechConfig);
-      // const result = await synthesizer.speakTextAsync(text);
-      // 
-      // if (result.reason === sdk.ResultReason.SynthesizingAudioCompleted) {
-      //   const resource = createAudioResource(result.audioData);
-      //   return resource;
-      // }
-      
       return null;
     } catch (error) {
       console.error('Azure TTS error:', error);
@@ -427,31 +368,10 @@ class TTSService {
     }
   }
 
-  // Amazon Polly TTS
+  // Amazon Polly TTS (placeholder)
   async amazonPollyTTS(text, options = {}) {
     try {
-      // This is a placeholder for Amazon Polly integration
-      // You'll need to:
-      // 1. Set up AWS account
-      // 2. Configure AWS credentials
-      // 3. Install aws-sdk package
-      
       console.log(`🔊 Amazon Polly TTS: ${text}`);
-      
-      // Example implementation:
-      // const AWS = require('aws-sdk');
-      // const polly = new AWS.Polly();
-      // 
-      // const params = {
-      //   Text: text,
-      //   OutputFormat: 'mp3',
-      //   VoiceId: 'Joanna'
-      // };
-      // 
-      // const result = await polly.synthesizeSpeech(params).promise();
-      // const resource = createAudioResource(result.AudioStream);
-      // return resource;
-      
       return null;
     } catch (error) {
       console.error('Amazon Polly TTS error:', error);
@@ -461,24 +381,16 @@ class TTSService {
 
   // Get available TTS providers
   getAvailableProviders() {
-    return [
-      'console',
-      'local',
-      'google',
-      'azure',
-      'polly'
-    ];
+    return ['console', 'local', 'google', 'azure', 'polly'];
   }
 
-  // Check if a provider is available
   isProviderAvailable(provider) {
     return this.getAvailableProviders().includes(provider);
   }
 
-  // Get current provider
   getCurrentProvider() {
     return this.provider;
   }
 }
 
-module.exports = { TTSService }; 
+module.exports = { TTSService };
