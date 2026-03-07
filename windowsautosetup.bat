@@ -119,7 +119,7 @@ echo   "token": "%token%",
 echo   "clientId": "%clientId%",
 echo   "guildId": "%guildId%"
 echo }
-) > config/config.json
+) > config.json
 
 echo.
 echo %BLUE% config.json created successfully! %RESET%
