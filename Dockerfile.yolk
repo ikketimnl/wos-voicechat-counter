@@ -8,8 +8,6 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         wget \
         curl \
-        python3 \
-        python3-pip \
         espeak-ng \
         espeak-ng-data \
         festival \
@@ -20,14 +18,18 @@ RUN apt-get update && \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Piper Neural TTS — now a Python package (rhasspy/piper was archived Oct 2025,
-# development moved to OHF-Voice/piper1-gpl, distributed via PyPI as piper-tts).
+# Piper Neural TTS (~350 MB extra).
 # Activate with /settings in Discord.
-RUN pip3 install --no-cache-dir piper-tts
-
-# Pre-download the en_US lessac medium voice model
+# Note: tag 2023.11.14-2 is the correct release for piper_linux_x86_64.tar.gz
 RUN mkdir -p /opt/piper/voices \
-     && wget -q -O /opt/piper/voices/en_US-lessac-medium.onnx \
+     && wget -q -O /tmp/piper.tar.gz \
+     https://github.com/rhasspy/piper/releases/download/2023.11.14-2/piper_linux_x86_64.tar.gz \
+     && tar -xzf /tmp/piper.tar.gz -C /opt/piper --strip-components=1 \
+     && rm /tmp/piper.tar.gz \
+     && chmod +x /opt/piper/piper \
+     && ln -s /opt/piper/piper /usr/local/bin/piper
+
+RUN wget -q -O /opt/piper/voices/en_US-lessac-medium.onnx \
         https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx \
      && wget -q -O /opt/piper/voices/en_US-lessac-medium.onnx.json \
         https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx.json
