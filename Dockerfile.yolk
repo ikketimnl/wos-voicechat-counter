@@ -1,48 +1,37 @@
-# ──────────────────────────────────────────────────────────────────────────────
 # Dockerfile.yolk — Pelican/Pterodactyl yolk base image
 # Published to ghcr.io/ikketimnl/wos-vc-yolk:nodejs_22 via GitHub Actions CI
-# ──────────────────────────────────────────────────────────────────────────────
 FROM ghcr.io/pelican-eggs/yolks:nodejs_22
 
 USER root
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-        # Modern eSpeak (espeak-ng supersedes the old espeak package)
         espeak-ng \
         espeak-ng-data \
-        # Festival TTS
         festival \
         festvox-kallpc16k \
-        # Audio processing
         ffmpeg \
-        libsodium dev headers \
         libsodium-dev \
-        libasound \
         libasound2 \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Piper Neural TTS
-#
-# Adds ~350 MB. Rebuild and push via a new commit to main after uncommenting.
-# Then activate it with /settings → Voice Generator → Piper in Discord.
+# Piper Neural TTS (~350 MB extra).
+# Activate with /settings in Discord.
 #
 RUN mkdir -p /opt/piper/voices \
-    && wget -q -O /tmp/piper.tar.gz \
-       https://github.com/rhasspy/piper/releases/download/v1.2.0/piper_linux_x86_64.tar.gz \
-    && tar -xzf /tmp/piper.tar.gz -C /opt/piper --strip-components=1 \
-    && rm /tmp/piper.tar.gz \
-    && chmod +x /opt/piper/piper \
-    && ln -s /opt/piper/piper /usr/local/bin/piper
+     && wget -q -O /tmp/piper.tar.gz \
+     https://github.com/rhasspy/piper/releases/download/v1.2.0/piper_linux_x86_64.tar.gz \
+     && tar -xzf /tmp/piper.tar.gz -C /opt/piper --strip-components=1 \
+     && rm /tmp/piper.tar.gz \
+     && chmod +x /opt/piper/piper \
+     && ln -s /opt/piper/piper /usr/local/bin/piper
 
 RUN wget -q -O /opt/piper/voices/en_US-lessac-medium.onnx \
-       https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx \
-    && wget -q -O /opt/piper/voices/en_US-lessac-medium.onnx.json \
-       https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx.json
+        https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx \
+     && wget -q -O /opt/piper/voices/en_US-lessac-medium.onnx.json \
+        https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx.json
 
 ENV PIPER_MODEL=/opt/piper/voices/en_US-lessac-medium.onnx
-# ─────────────────────────────────────────────────────────────────────────────
 
 USER container
