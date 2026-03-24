@@ -43,7 +43,7 @@ client.commandHandler = new CommandHandler(client, settings, customAudio);
 client.settings       = settings;
 
 // ── Events ─────────────────────────────────────────────────────────────────
-client.once('ready', () => {
+client.once('clientReady', () => {
   console.log(`✅ Logged in as ${client.user.tag}`);
   client.commandHandler.registerCommands();
 });
