@@ -32,7 +32,7 @@ RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
 #
 # RUN mkdir -p /opt/piper/voices \
 #     && wget -q -O /tmp/piper.tar.gz \
-#        https://github.com/rhasspy/piper/releases/download/v1.2.0/piper_linux_x86_64.tar.gz \
+#        https://github.com/rhasspy/piper/releases/download/2023.11.14-2/piper_linux_x86_64.tar.gz \
 #     && tar -xzf /tmp/piper.tar.gz -C /opt/piper --strip-components=1 \
 #     && rm /tmp/piper.tar.gz \
 #     && chmod +x /opt/piper/piper \
