@@ -1,183 +1,153 @@
-# CounterBot VC - Discord Synchronized Attack Bot
+# 🎙️ WoS VoiceChat Counter
 
-A Discord bot that coordinates synchronized attacks by calculating optimal timing for multiple players based on their distance to target. The bot provides voice countdowns to ensure all players launch their attacks at the perfect moment for synchronized arrival.
+A Discord bot that coordinates synchronized attacks in **Whiteout Survival** by announcing a voice countdown so all players hit their targets at the same moment.
 
-## Features
+---
 
-- **Player Management**: Register, update, and remove players with their time-to-destination
-- **Synchronization Logic**: Automatically calculates when each player should start their attack
-- **Voice Countdowns**: Provides voice announcements and countdowns in Discord voice channels
-- **Real-time Coordination**: Ensures all attacks arrive at the target simultaneously
-- **Easy Commands**: Simple slash commands for all operations
+## ✨ Features
 
-## Commands
+| Feature | Description |
+|---|---|
+| 🎯 Synchronized timing | Calculates exact start times so every player arrives simultaneously |
+| ⚔️ Attack groups | Organize players into independent groups |
+| 🔢 Count direction | Toggle between **Count Down** (max→1) and **Count Up** (1→max) via `/settings` |
+| 📢 Rally intro | Optional spoken intro before counting; enable/disable via `/settings` |
+| 🔊 Voice generators | Choose from **local auto-detect**, **eSpeak NG**, **Festival**, **Piper neural TTS**, or **console** (see `DOCKER.md` for Piper setup) |
+| 🎵 Custom audio | Upload your own WAV/MP3/OGG files for numbers, the intro, and the outro via `/audio upload` |
+| ⚙️ Visual settings menu | Full interactive settings panel — `/settings` in Discord |
+| 🆕 In-bot updates | `/botupdate` checks GitHub Releases and can pull + reinstall automatically |
+| 💾 Persistent config | All settings survive restarts, saved in `config/settings.json` |
 
-### Player Management
-- `/register <playername> <seconds> [group]` - Register a new player with their time to destination and attack group (default: 1)
-- `/update <playername> <seconds> [group]` - Update a player's time to destination and/or attack group
-- `/remove <playername>` - Remove a specific player
-- `/clear` - Remove all registered players
-- `/cleargroup <group>` - Remove all players from a specific attack group
-- `/list` - Show all registered players with their groups
+---
 
-### Voice Channel
-- `/join` - Bot joins your current voice channel
-- `/leave` - Bot leaves the voice channel
+## 🚀 Quick Start
 
-### Attack Coordination
-- `/preview [group]` - Preview the attack sequence without launching (optional: specific group)
-- `/launch [group]` - Start the synchronized attack sequence (optional: specific group)
-- `/stop` - Stop the current attack countdown
-- `/status` - Show current bot status and player count
+### Option A — Docker (recommended for servers)
 
-## How It Works
-
-1. **Register Players**: Add players with their time to reach the target and attack group
-2. **Organize Groups**: Players can be assigned to different attack groups for multiple coordinated attacks
-3. **Join Voice Channel**: Bot joins your voice channel for announcements
-4. **Preview/Launch**: Preview the plan or launch the sequence for specific groups or all groups
-5. **Synchronized Attack**: Each group's players get synchronized countdowns ensuring perfect timing
-6. **Emergency Stop**: Use `/stop` if players miss timing to reset and restart the sequence
-
-### Example Scenario
-
-**Attack Group 1:**
-- **Player A**: 10 seconds to target
-- **Player B**: 15 seconds to target  
-- **Player C**: 20 seconds to target
-
-**Attack Group 2:**
-- **Player D**: 8 seconds to target
-- **Player E**: 12 seconds to target
-
-**Result**: 
-- **Group 1**: All attacks arrive at 20s
-  - Player A starts at 10 seconds (arrives at 20s)
-  - Player B starts at 5 seconds (arrives at 20s)
-  - Player C starts at 0 seconds (arrives at 20s)
-- **Group 2**: All attacks arrive at 12s
-  - Player D starts at 4 seconds (arrives at 12s)
-  - Player E starts at 0 seconds (arrives at 12s)
-
-Each group's attacks arrive simultaneously at their respective target times!
-
-## Setup Instructions
-
-### 🐳 Docker Deployment (Recommended)
-
-For the easiest setup with guaranteed cross-platform compatibility:
-
-1. **Clone the repository**
-2. **Create `config/config.json`** with your Discord bot credentials
-3. **Run `./deploy.sh`**
-
-See [DOCKER.md](DOCKER.md) for detailed Docker instructions.
-
-### 🔧 Manual Setup
-
-#### 1. Prerequisites
-- Node.js 16.9.0 or higher
-- Discord Bot Token
-- Discord Application with proper permissions
-
-#### 2. Install Dependencies
 ```bash
-npm install
+git clone https://github.com/ikketimnl/wos-voicechat-counter.git
+cd wos-voicechat-counter
+node setup.js          # interactive wizard
+docker compose up -d
 ```
 
-#### 3. Configure the Bot
-1. Edit `config.json` with your bot credentials:
-```json
-{
-  "token": "YOUR_DISCORD_BOT_TOKEN_HERE",
-  "clientId": "YOUR_CLIENT_ID_HERE",
-  "guildId": "YOUR_GUILD_ID_HERE"
-}
-```
+### Option B — Local (Windows / macOS / Linux)
 
-2. Ensure your bot has these permissions:
-   - Send Messages
-   - Use Slash Commands
-   - Connect to Voice Channels
-   - Speak in Voice Channels
-   - Use Voice Activity
-
-#### 4. Run the Bot
 ```bash
+git clone https://github.com/ikketimnl/wos-voicechat-counter.git
+cd wos-voicechat-counter
+node setup.js
 npm start
 ```
 
-For development with auto-restart:
-```bash
-npm run dev
+---
+
+## 🤖 Discord Commands
+
+### Player Management
+| Command | Description |
+|---|---|
+| `/register <name> <seconds> [group]` | Register a player with their travel time |
+| `/update <name> <seconds> [group]` | Update a player's travel time or group |
+| `/remove <name>` | Remove a player |
+| `/clear` | Remove all players |
+| `/cleargroup <group>` | Remove all players in a group |
+| `/list` | Show all registered players |
+
+### Voice & Attack
+| Command | Description |
+|---|---|
+| `/join` | Bot joins your voice channel |
+| `/leave` | Bot leaves the voice channel |
+| `/launch [group]` | Start the synchronized countdown |
+| `/preview [group]` | Preview timing without starting |
+| `/stop` | Stop an active countdown |
+| `/status` | Show bot status and current settings |
+
+### Settings & Management
+| Command | Description |
+|---|---|
+| `/settings` | Open the interactive settings menu |
+| `/botupdate` | Check for and apply updates from GitHub |
+| `/audio list` | List uploaded custom audio files |
+| `/audio upload` | Upload a custom WAV/MP3/OGG audio file |
+| `/audio delete <filename>` | Delete a custom audio file |
+| `/audio clear` | Delete all custom audio files |
+| `/audio coverage` | Show which numbers (1–60) have custom audio |
+
+---
+
+## ⚙️ Settings Menu (`/settings`)
+
+The interactive settings panel lets you change everything without restarting:
+
+- **Voice Generator** — switch between `local`, `espeak`, `festival`, `piper`, `console`
+- **Count Direction** — toggle Count Down ↓ or Count Up ↑
+- **Rally Intro** — enable or disable the opening announcement
+- **Cache Controls** — clear countdown cache or full library cache to free disk space
+
+All settings are saved immediately to `config/settings.json`.
+
+---
+
+## 🎵 Custom Audio Files
+
+Replace the TTS voice with your own audio clips:
+
+```
+/audio upload   ← attach a file named:
+  5.wav         → plays instead of TTS "5"
+  intro.wav     → plays as the opening announcement
+  complete.wav  → plays at the end
 ```
 
-## Voice Features
+**Naming rules:** Use `<number>.wav` for numbers (e.g. `1.wav` through `200.wav`), or `intro.wav` / `complete.wav` for special phrases. Supported formats: WAV, MP3, OGG, FLAC. Max 5 MB per file.
 
-The bot now provides **actual voice announcements** in Discord voice channels using:
+Files are stored in `config/custom_audio/` (Docker volume-mounted, survives rebuilds).
 
-- **Local TTS (Default)** - Uses cross-platform `say` npm package for immediate voice output
-- **Google Cloud Text-to-Speech** - For cloud-based voice synthesis
-- **Amazon Polly** - AWS-powered voice generation
-- **Microsoft Azure Speech Services** - Enterprise-grade TTS
-- **Console Logging** - Fallback for debugging
+---
 
-### Cross-Platform Compatibility
+## 🔊 Voice Generators
 
-The bot now works on **Windows**, **macOS**, and **Linux**:
-- **Windows**: Uses Windows SAPI (Speech API)
-- **macOS**: Uses built-in `say` command
-- **Linux**: Uses `espeak` (if installed) or falls back to other TTS engines
+| Provider | Quality | Notes |
+|---|---|---|
+| `local` | Good | Auto-detects SAPI (Win), say (Mac), espeak (Linux) |
+| `espeak` | Robotic | Fast, always available in Docker |
+| `festival` | Better | Deeper voice, always available in Docker |
+| `piper` | Natural | Neural TTS — requires extra install (see `DOCKER.md`) |
+| `console` | None | Logs only — useful for testing without audio |
 
-### Voice Output
-- ✅ **Real-time voice countdowns** in Discord voice channels
-- ✅ **Player-specific announcements** with timing information
-- ✅ **Synchronized countdown sequences** (3, 2, 1, Go!)
-- ✅ **Automatic audio file management** with cleanup
+Switch between them live with `/settings`. The number library regenerates automatically and cached files from the old engine are cleaned up.
 
-The bot will now speak the countdowns instead of just logging them to console!
+---
 
-## Technical Details
+## 🐳 Docker & Sysadmin
 
-- **Framework**: Discord.js v14
-- **Voice Support**: @discordjs/voice
-- **Architecture**: Modular design with separate managers for different concerns
-- **Error Handling**: Comprehensive error handling with user-friendly messages
-- **Real-time**: Uses Discord's real-time APIs for instant coordination
+See **[DOCKER.md](DOCKER.md)** for:
+- Full Docker deployment guide
+- Installing Piper Neural TTS (step-by-step)
+- Cache management and disk usage tips
+- Volume structure
+- Troubleshooting
 
-## Troubleshooting
+---
 
-### Common Issues
+## 📋 Example Workflow
 
-1. **Bot won't join voice channel**
-   - Ensure bot has voice permissions
-   - Check if you're in a voice channel
-   - Verify bot is online
+```
+/join
+/register Alpha 30
+/register Beta  20
+/register Gamma 10
+/preview        ← check timing before launching
+/launch         ← Bot speaks: "Alpha ready. Three. Two. One. Go.
+                               [counts] 10... 9... 8... ATTACK!"
+```
 
-2. **Commands not working**
-   - Check if slash commands are registered
-   - Verify bot has proper permissions
-   - Ensure bot is in the correct guild
+All three players arrive at the same second. 🎯
 
-3. **Voice not working**
-   - Check voice permissions
-   - Verify bot is connected to voice channel
-   - Check console for error messages
+---
 
-### Permissions Checklist
+## 📄 License
 
-- [ ] Bot has `Send Messages` permission
-- [ ] Bot has `Use Slash Commands` permission  
-- [ ] Bot has `Connect` permission for voice channels
-- [ ] Bot has `Speak` permission in voice channels
-- [ ] Bot has `Use Voice Activity` permission
-
-## Contributing
-
-Feel free to submit issues and enhancement requests!
-If you like the project you can buy me a coffee :P
-https://buymeacoffee.com/bj0rd
-
-## License
-
-MIT License - see LICENSE file for details. 
+MIT — see [LICENSE](LICENSE)

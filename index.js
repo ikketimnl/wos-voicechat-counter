@@ -1,41 +1,81 @@
-const { Client, GatewayIntentBits, Collection } = require('discord.js');
-const { PlayerManager } = require('./src/PlayerManager');
-const { CommandHandler } = require('./src/CommandHandler');
-const { VoiceManager } = require('./src/VoiceManager');
+'use strict';
+
+const { Client, GatewayIntentBits } = require('discord.js');
 const path = require('path');
-const config = require(path.join(__dirname, 'config.json'));
+const fs   = require('fs');
+
+// ── Config loading ─────────────────────────────────────────────────────────
+const configPath = path.join(__dirname, 'config.json');
+if (!fs.existsSync(configPath)) {
+  console.error('❌ config.json not found. Run: node setup.js');
+  process.exit(1);
+}
+const config = require(configPath);
+if (!config.token || !config.clientId || !config.guildId) {
+  console.error('❌ config.json is incomplete. Run: node setup.js');
+  process.exit(1);
+}
+
+// ── Service imports ────────────────────────────────────────────────────────
+const { PlayerManager }      = require('./src/PlayerManager');
+const { BotSettings }        = require('./src/BotSettings');
+const { CustomAudioManager } = require('./src/CustomAudioManager');
+const { VoiceManager }       = require('./src/VoiceManager');
+const { CommandHandler }     = require('./src/CommandHandler');
+
+// ── Initialise services ────────────────────────────────────────────────────
+const settings    = new BotSettings();
+const customAudio = new CustomAudioManager();
 
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildVoiceStates,
     GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent
-  ]
+    GatewayIntentBits.MessageContent,
+  ],
 });
 
-// Initialize managers
-client.playerManager = new PlayerManager();
-client.voiceManager = new VoiceManager(client);
-client.commandHandler = new CommandHandler(client);
+// Attach managers to client so they share a single instance
+client.playerManager  = new PlayerManager();
+client.voiceManager   = new VoiceManager(client, settings, customAudio);
+client.commandHandler = new CommandHandler(client, settings, customAudio);
+client.settings       = settings;
 
+// ── Events ─────────────────────────────────────────────────────────────────
 client.once('ready', () => {
-  console.log(`Logged in as ${client.user.tag}`);
+  console.log(`✅ Logged in as ${client.user.tag}`);
   client.commandHandler.registerCommands();
 });
 
 client.on('interactionCreate', async (interaction) => {
-  if (!interaction.isCommand()) return;
-  
   try {
-    await client.commandHandler.handleCommand(interaction);
-  } catch (error) {
-    console.error('Error handling command:', error);
-    await interaction.reply({ 
-      content: 'There was an error executing this command!', 
-      ephemeral: true 
-    });
+    if (interaction.isChatInputCommand()) {
+      await client.commandHandler.handleCommand(interaction);
+    } else if (interaction.isButton() || interaction.isStringSelectMenu()) {
+      await client.commandHandler.handleComponentInteraction(interaction);
+    }
+  } catch (err) {
+    console.error('Unhandled interaction error:', err);
+    const reply = { content: '❌ An unexpected error occurred.', ephemeral: true };
+    try {
+      if (interaction.deferred || interaction.replied) await interaction.followUp(reply);
+      else await interaction.reply(reply);
+    } catch (_) {}
   }
 });
 
-client.login(config.token); 
+// ── Graceful shutdown ──────────────────────────────────────────────────────
+const shutdown = () => {
+  console.log('\n🛑 Shutting down…');
+  client.destroy();
+  process.exit(0);
+};
+process.on('SIGINT',  shutdown);
+process.on('SIGTERM', shutdown);
+
+// ── Login ──────────────────────────────────────────────────────────────────
+client.login(config.token).catch((err) => {
+  console.error('❌ Login failed:', err.message);
+  process.exit(1);
+});

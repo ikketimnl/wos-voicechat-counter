@@ -1,0 +1,8 @@
+{
+  "ttsProvider": "local",
+  "countDirection": "down",
+  "introEnabled": true,
+  "customAudioDir": null,
+  "voiceRate": 170,
+  "version": null
+}

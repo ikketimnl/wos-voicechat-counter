@@ -3,28 +3,38 @@ services:
     build: .
     container_name: counterbot-vc
     restart: unless-stopped
-    # network_mode: host is required for Discord voice (UDP) to work on Linux.
-    # This has no effect on Docker Desktop for Windows — run natively there instead.
+
+    # network_mode: host is required for Discord voice (UDP) to work correctly
+    # on Linux hosts. On Docker Desktop for Windows/macOS this has no effect;
+    # run the bot natively there instead of in Docker.
     network_mode: host
+
     environment:
       - NODE_ENV=production
+      # Set the default TTS provider here, or change it via /settings in Discord.
+      # Options: local | espeak | festival | piper | console
       - TTS_PROVIDER=local
+      # Uncomment to specify a custom Piper model path (if Piper is enabled in Dockerfile):
+      # - PIPER_MODEL=/opt/piper/voices/en_US-lessac-medium.onnx
+
     volumes:
-      # Mount config directory for persistent configuration
+      # config/ holds config.json, settings.json, and custom_audio/
+      # Mount this so all settings + custom audio survive container rebuilds.
       - ./config:/app/config
-      # Mount temp directory for audio cache persistence
+      # temp/ holds the generated number library and countdown cache.
+      # Mounting it avoids regenerating ~200 WAV files on every restart.
       - ./temp:/app/temp
-    # Health check
+
     healthcheck:
-      test: ["CMD", "node", "-e", "console.log('Bot health check passed')"]
+      test: ["CMD", "node", "-e", "require('./src/BotSettings')"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 40s
-    # Resource limits
+      start_period: 30s
+
     deploy:
       resources:
         limits:
-          memory: 512M
+          memory: 768M
         reservations:
           memory: 256M
