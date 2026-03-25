@@ -105,10 +105,15 @@ class TTSService {
   }
 
   _festivalTTS(text, outputFile) {
-    const safe = text.replace(/"/g, '\\"').replace(/`/g, '');
+    // festival --tts does not support --output; use text2wave instead which
+    // is the standard Festival utility for writing WAV output to a file.
+    const safe = text.replace(/'/g, "'\''");
     return new Promise((resolve, reject) => {
-      exec(`echo "${safe}" | festival --tts --output "${outputFile}"`, (err) =>
-        err ? reject(new Error(`Festival failed: ${err.message}`)) : resolve());
+      exec(`echo '${safe}' | text2wave -o "${outputFile}"`, (err) => {
+        if (err) return reject(new Error(`Festival failed: ${err.message}`));
+        if (!fs.existsSync(outputFile)) return reject(new Error('Festival produced no file'));
+        resolve();
+      });
     });
   }
 
@@ -171,22 +176,46 @@ class TTSService {
 
     console.log('🔊 Initialising number library (1–200)…');
 
+    // Collect numbers that still need generating
+    const toGenerate = [];
     for (let i = 1; i <= 200; i++) {
       const customFile = this.customAudio.getNumberFile(i);
       if (customFile) { this.numberLibrary.set(i, customFile); continue; }
-
       const libFile = path.join(this.libraryDir, `${i}.wav`);
       if (fs.existsSync(libFile)) { this.numberLibrary.set(i, libFile); continue; }
+      toGenerate.push(i);
+    }
 
-      const rawFile = path.join(this.libraryDir, `raw_${i}.wav`);
-      try {
-        await this._ttsToWav(`${i}.`, rawFile);
-        await this._normaliseNumber(rawFile, libFile);
-        try { fs.unlinkSync(rawFile); } catch (_) {}
-        this.numberLibrary.set(i, libFile);
-      } catch (err) {
-        console.warn(`⚠️  Number ${i} failed: ${err.message}`);
-        try { fs.unlinkSync(rawFile); } catch (_) {}
+    if (toGenerate.length > 0) {
+      // Piper loads a ~350 MB ONNX model per process — limit to 1 concurrent
+      // on memory-constrained containers. Other providers are lightweight and
+      // can safely run at higher concurrency.
+      const isPiper = this.provider === 'piper';
+      const CONCURRENCY = isPiper ? 1 : 4;
+      if (isPiper) {
+        console.log('⚠️  Piper uses ~350 MB RAM per process. Building library sequentially to avoid OOM.');
+        console.log(`⚠️  This will take ~${toGenerate.length * 2}–${toGenerate.length * 4}s. Library is cached after first build.`);
+      }
+      let completed = 0;
+
+      for (let j = 0; j < toGenerate.length; j += CONCURRENCY) {
+        const chunk = toGenerate.slice(j, j + CONCURRENCY);
+        await Promise.all(chunk.map(async (i) => {
+          const rawFile = path.join(this.libraryDir, `raw_${i}.wav`);
+          const libFile = path.join(this.libraryDir, `${i}.wav`);
+          try {
+            await this._ttsToWav(`${i}.`, rawFile);
+            await this._normaliseNumber(rawFile, libFile);
+            try { fs.unlinkSync(rawFile); } catch (_) {}
+            this.numberLibrary.set(i, libFile);
+          } catch (err) {
+            console.warn(`⚠️  Number ${i} failed: ${err.message}`);
+            try { fs.unlinkSync(rawFile); } catch (_) {}
+          }
+          completed++;
+          if (completed % 40 === 0)
+            console.log(`🔊 Library progress: ${completed}/${toGenerate.length}…`);
+        }));
       }
     }
 
