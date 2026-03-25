@@ -1,69 +1,54 @@
 #!/bin/bash
+# WoS VoiceChat Counter — Docker deployment helper
+set -e
 
-# CounterBot VC Docker Deployment Script
-echo "🚀 CounterBot VC Docker Deployment"
-echo "=================================="
+echo "🚀 WoS VoiceChat Counter — Docker Deployment"
+echo "=============================================="
 
-# Check if Docker is installed
-if ! command -v docker &> /dev/null; then
-    echo "❌ Docker is not installed. Please install Docker first."
-    exit 1
+# Docker check (supports both v1 and v2)
+if ! command -v docker &>/dev/null; then
+  echo "❌ Docker is not installed. Please install Docker first."
+  exit 1
 fi
 
-# Check if docker-compose is installed
-if ! command -v docker-compose &> /dev/null; then
-    echo "❌ Docker Compose is not installed. Please install Docker Compose first."
-    exit 1
+# Use 'docker compose' (v2 plugin) if available, fall back to docker-compose
+if docker compose version &>/dev/null 2>&1; then
+  COMPOSE="docker compose"
+elif command -v docker-compose &>/dev/null; then
+  COMPOSE="docker-compose"
+else
+  echo "❌ Docker Compose not found. Install Docker Desktop or the compose plugin."
+  exit 1
 fi
 
-# Create necessary directories
+# Create required directories
 echo "📁 Creating directories..."
-mkdir -p config
-mkdir -p temp
+mkdir -p config config/custom_audio temp temp/library
 
-# Check if config.json exists
-if [ ! -f "config/config.json" ]; then
-    echo "⚠️  No config.json found in config directory."
-    echo "Please create config/config.json with your Discord bot credentials:"
-    echo "{"
-    echo "  \"token\": \"YOUR_DISCORD_BOT_TOKEN\","
-    echo "  \"clientId\": \"YOUR_CLIENT_ID\","
-    echo "  \"guildId\": \"YOUR_GUILD_ID\""
-    echo "}"
-    echo ""
-    read -p "Do you want to continue anyway? (y/N): " -n 1 -r
-    echo
-    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-        exit 1
-    fi
+# Check for config.json (root level — that's where the bot reads it)
+if [ ! -f "config.json" ] || [ "$(cat config.json)" = '{"token":"","clientId":"","guildId":""}' ]; then
+  echo ""
+  echo "⚠️  config.json is empty or missing. Run the setup wizard first:"
+  echo "   node setup.js"
+  echo ""
+  read -rp "Continue without config? (y/N): "
+  [[ $REPLY =~ ^[Yy]$ ]] || exit 1
 fi
 
-# Build the Docker image
+# Build
+echo ""
 echo "🔨 Building Docker image..."
-docker-compose build
+$COMPOSE build
 
-if [ $? -ne 0 ]; then
-    echo "❌ Docker build failed!"
-    exit 1
-fi
-
-echo "✅ Docker image built successfully!"
-
-# Start the container
-echo "🚀 Starting CounterBot VC..."
-docker-compose up -d
-
-if [ $? -ne 0 ]; then
-    echo "❌ Failed to start container!"
-    exit 1
-fi
-
-echo "✅ CounterBot VC is now running!"
 echo ""
-echo "📋 Useful commands:"
-echo "  View logs: docker-compose logs -f"
-echo "  Stop bot: docker-compose down"
-echo "  Restart bot: docker-compose restart"
-echo "  Update bot: ./deploy.sh"
+echo "🚀 Starting bot..."
+$COMPOSE up -d
+
 echo ""
-echo "🎉 Your Discord bot should now be online!" 
+echo "✅ Bot is running!"
+echo ""
+echo "Useful commands:"
+echo "  $COMPOSE logs -f           — live logs"
+echo "  $COMPOSE restart           — restart"
+echo "  $COMPOSE down              — stop"
+echo "  $COMPOSE up -d --build    — rebuild & restart"

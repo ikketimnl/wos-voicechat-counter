@@ -1,31 +1,29 @@
 {
-  "name": "counterbot-vc",
-  "version": "1.0.0",
-  "description": "Discord bot for synchronized attacks with voice countdown",
+  "name": "wos-voicechat-counter",
+  "version": "2.0.0",
+  "description": "Discord bot for synchronized WoS attacks with voice countdown",
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
-    "dev": "nodemon index.js"
+    "dev": "nodemon index.js",
+    "setup": "node setup.js"
   },
   "dependencies": {
     "@discordjs/opus": "^0.10.0",
-    "@discordjs/voice": "^0.19.1-dev.1772841884-52173b6ca",
-    "@snazzah/davey": "latest",
-    "tweetnacl": "latest",
-    "discord.js": "latest",
+    "@discordjs/voice": "^0.19.2",
+    "discord.js": "^14.16.3",
     "ffmpeg-static": "^5.2.0",
-    "libsodium-wrappers": "^0.7.13",
-    "say": "^0.16.0"
+    "libsodium-wrappers": "^0.7.15",
+    "sodium-native": "^4.3.3",
+    "tweetnacl": "^1.0.3"
   },
   "devDependencies": {
-    "nodemon": "^3.0.2"
+    "nodemon": "^3.1.7"
   },
-  "keywords": [
-    "discord",
-    "bot",
-    "voice",
-    "synchronization"
-  ],
-  "author": "Omar",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "keywords": ["discord", "bot", "voice", "synchronization", "wos"],
+  "author": "ikketimnl",
   "license": "MIT"
 }

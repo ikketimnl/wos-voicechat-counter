@@ -140,12 +140,11 @@ if %errorLevel% neq 0 (
     exit /b 1
 )
 
-:: Install DAVE-compatible voice packages
+:: All packages are already in package.json
 echo.
-echo %BLUE% Installing Discord voice packages with DAVE protocol support... %RESET%
-cmd /c npm install @discordjs/voice@0.19.1-dev.1772841884-52173b6ca --legacy-peer-deps
-cmd /c npm install @snazzah/davey --legacy-peer-deps
-cmd /c npm install tweetnacl --legacy-peer-deps
+echo %BLUE% Dependencies installed via npm install... %RESET%
+:: All dependencies are installed via npm install above (package.json is the source of truth)
+:: No extra packages needed
 
 cls
 echo.

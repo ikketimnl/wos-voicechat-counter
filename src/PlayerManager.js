@@ -1,3 +1,5 @@
+'use strict';
+
 class PlayerManager {
   constructor() {
     this.players = new Map();

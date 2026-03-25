@@ -3,7 +3,7 @@
 FROM ghcr.io/pelican-eggs/yolks:nodejs_22
 
 USER root
-
+# Espeak gets still installed to keep supporting older versions
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         wget \

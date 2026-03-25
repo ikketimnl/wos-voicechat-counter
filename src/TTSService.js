@@ -1,305 +1,397 @@
+'use strict';
+
 const { createAudioResource } = require('@discordjs/voice');
-const fs = require('fs');
-const path = require('path');
-const crypto = require('crypto');
+const fs      = require('fs');
+const path    = require('path');
+const crypto  = require('crypto');
 const { exec, execFile } = require('child_process');
 
 class TTSService {
-
-  constructor() {
-    this.provider = 'console';
-    this.audioCache = new Map();
+  constructor(settings, customAudio) {
+    this.settings    = settings;
+    this.customAudio = customAudio;
+    this.audioCache  = new Map();
     this.numberLibrary = new Map();
     this.libraryInitialized = false;
-    this.platform = process.platform;
-    this.windowsVoice = null; // cached after first detection
+    this.platform    = process.platform;
+    this.windowsVoice = null;
+    this._cleanTempDir();
   }
 
-  setProvider(provider) {
-    this.provider = provider;
+  get provider() { return this.settings.ttsProvider; }
+
+  get tempDir() {
+    const d = path.join(__dirname, '../temp');
+    if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true });
+    return d;
   }
 
-  // Detect the first available Windows SAPI voice (cached after first call)
-  async getWindowsVoice() {
+  get libraryDir() {
+    const d = path.join(this.tempDir, 'library');
+    if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true });
+    return d;
+  }
+
+  _cleanTempDir() {
+    try {
+      const d = path.join(__dirname, '../temp');
+      if (!fs.existsSync(d)) return;
+      for (const f of fs.readdirSync(d)) {
+        if (/^(intro_|final_|sync_countdown_|seg_|raw_|list_)/.test(f)) {
+          try { fs.unlinkSync(path.join(d, f)); } catch (_) {}
+        }
+      }
+    } catch (_) {}
+  }
+
+  async _getWindowsVoice() {
     if (this.windowsVoice !== null) return this.windowsVoice;
     return new Promise((resolve) => {
-      const cmd = `powershell.exe -Command "Add-Type -AssemblyName System.Speech; $s = New-Object System.Speech.Synthesis.SpeechSynthesizer; $s.GetInstalledVoices() | ForEach-Object { $_.VoiceInfo.Name } | Select-Object -First 1"`;
-      exec(cmd, (error, stdout) => {
-        const voice = (!error && stdout.trim()) ? stdout.trim() : null;
+      const cmd = 'powershell.exe -Command "Add-Type -AssemblyName System.Speech; $s = New-Object System.Speech.Synthesis.SpeechSynthesizer; $s.GetInstalledVoices() | ForEach-Object { $_.VoiceInfo.Name } | Select-Object -First 1"';
+      exec(cmd, (err, stdout) => {
+        const voice = (!err && stdout.trim()) ? stdout.trim() : null;
         this.windowsVoice = voice;
-        console.log(`🔊 Detected Windows voice: ${voice || '(system default)'}`);
         resolve(voice);
       });
     });
   }
 
-  // Main TTS generation — skips say package, goes straight to platform-specific
-  async generateCrossPlatformTTS(text, outputFile) {
-    return this.generatePlatformSpecificTTS(text, outputFile);
+  async _ttsToWav(text, outputFile) {
+    const p = this.provider;
+    if (p === 'espeak')   return this._espeakTTS(text, outputFile);
+    if (p === 'festival') return this._festivalTTS(text, outputFile);
+    if (p === 'piper')    return this._piperTTS(text, outputFile);
+    return this._platformTTS(text, outputFile);
   }
 
-  // Platform-specific TTS
-  async generatePlatformSpecificTTS(text, outputFile) {
-    const platform = this.platform;
-
-    if (platform === 'win32') {
-      const voice = await this.getWindowsVoice();
+  async _platformTTS(text, outputFile) {
+    if (this.platform === 'win32') {
+      const voice = await this._getWindowsVoice();
       const selectVoice = voice ? `$synthesizer.SelectVoice('${voice}');` : '';
       const safeText = text.replace(/'/g, "''");
-      // Escape backslashes for PowerShell string
       const safePath = outputFile.replace(/\\/g, '\\\\');
-      const command = `powershell.exe -Command "Add-Type -AssemblyName System.Speech; $synthesizer = New-Object System.Speech.Synthesis.SpeechSynthesizer; ${selectVoice} $synthesizer.SetOutputToWaveFile('${safePath}'); $synthesizer.Speak('${safeText}'); $synthesizer.Dispose()"`;
+      const cmd = `powershell.exe -Command "Add-Type -AssemblyName System.Speech; $synthesizer = New-Object System.Speech.Synthesis.SpeechSynthesizer; ${selectVoice} $synthesizer.SetOutputToWaveFile('${safePath}'); $synthesizer.Speak('${safeText}'); $synthesizer.Dispose()"`;
       return new Promise((resolve, reject) => {
-        exec(command, { timeout: 30000 }, (error) => {
-          if (error) {
-            reject(new Error(`Windows TTS failed for "${text}": ${error.message}`));
-          } else if (!fs.existsSync(outputFile)) {
-            reject(new Error(`Windows TTS ran but produced no file for "${text}"`));
-          } else {
-            resolve();
-          }
-        });
-      });
-
-    } else if (platform === 'darwin') {
-      const safeText = text.replace(/"/g, '\\"');
-      const command = `say -o "${outputFile}" -v "Samantha" -r 170 "${safeText}"`;
-      return new Promise((resolve, reject) => {
-        exec(command, (error) => {
-          if (error) reject(new Error(`macOS TTS failed: ${error.message}`));
-          else resolve();
-        });
-      });
-
-    } else {
-      // Linux / Docker / unknown — try espeak first, then festival
-      const safeText = text.replace(/"/g, '\\"');
-      return new Promise((resolve, reject) => {
-        exec(`espeak -w "${outputFile}" "${safeText}"`, (error) => {
-          if (!error) return resolve();
-          exec(`echo "${safeText}" | festival --tts --output "${outputFile}"`, (error2) => {
-            if (!error2) return resolve();
-            reject(new Error(`All TTS engines failed. espeak: ${error.message} | festival: ${error2.message}`));
-          });
-        });
-      });
-    }
-  }
-
-  // Initialize the number library (pre-generate numbers 1-200)
-  async initializeNumberLibrary() {
-    if (this.libraryInitialized) return;
-
-    try {
-      const ffmpegPath = require('ffmpeg-static');
-      const libraryDir = path.join(__dirname, '../temp/library');
-      if (!fs.existsSync(libraryDir)) fs.mkdirSync(libraryDir, { recursive: true });
-
-      const runFfmpeg = (args) => new Promise((resolve, reject) => {
-        execFile(ffmpegPath, args, (err, stdout, stderr) => {
-          if (err) return reject(new Error(stderr || err.message));
+        exec(cmd, { timeout: 30_000 }, (err) => {
+          if (err) return reject(new Error(`Windows TTS failed: ${err.message}`));
+          if (!fs.existsSync(outputFile)) return reject(new Error('Windows TTS produced no file'));
           resolve();
         });
       });
+    }
 
-      console.log('🔊 Initializing number library (1-200)...');
+    if (this.platform === 'darwin') {
+      const rate = this.settings.get('voiceRate') ?? 170;
+      const safe = text.replace(/"/g, '\\"');
+      return new Promise((resolve, reject) => {
+        exec(`say -o "${outputFile}" -v "Samantha" -r ${rate} "${safe}"`, (err) =>
+          err ? reject(new Error(`macOS TTS failed: ${err.message}`)) : resolve());
+      });
+    }
 
-      for (let i = 1; i <= 200; i++) {
-        const numberFile = path.join(libraryDir, `${i}.wav`);
-        if (fs.existsSync(numberFile)) {
-          this.numberLibrary.set(i, numberFile);
-          continue;
-        }
+    // Linux — try espeak-ng, espeak, then festival
+    return this._espeakTTS(text, outputFile).catch(() => this._festivalTTS(text, outputFile));
+  }
 
-        const rawFile = path.join(libraryDir, `raw_${i}.wav`);
-        try {
-          await this.generateCrossPlatformTTS(`${i}.`, rawFile);
-          await runFfmpeg(['-y', '-i', rawFile, '-af', 'apad=pad_dur=1,atrim=0:1', '-ar', '48000', '-ac', '2', '-sample_fmt', 's16', numberFile]);
-          try { fs.unlinkSync(rawFile); } catch (_) {}
-          this.numberLibrary.set(i, numberFile);
-        } catch (numErr) {
-          console.warn(`⚠️ Failed to generate number ${i}, skipping: ${numErr.message}`);
-          try { fs.unlinkSync(rawFile); } catch (_) {}
+  _espeakTTS(text, outputFile) {
+    const safe = text.replace(/"/g, '\\"');
+    return new Promise((resolve, reject) => {
+      exec(`espeak-ng -w "${outputFile}" "${safe}" 2>/dev/null || espeak -w "${outputFile}" "${safe}"`, (err) => {
+        if (err) return reject(new Error(`eSpeak failed: ${err.message}`));
+        if (!fs.existsSync(outputFile)) return reject(new Error('eSpeak produced no file'));
+        resolve();
+      });
+    });
+  }
+
+  _festivalTTS(text, outputFile) {
+    // festival --tts does not support --output; use text2wave instead which
+    // is the standard Festival utility for writing WAV output to a file.
+    const safe = text.replace(/'/g, "'\''");
+    return new Promise((resolve, reject) => {
+      exec(`echo '${safe}' | text2wave -o "${outputFile}"`, (err) => {
+        if (err) return reject(new Error(`Festival failed: ${err.message}`));
+        if (!fs.existsSync(outputFile)) return reject(new Error('Festival produced no file'));
+        resolve();
+      });
+    });
+  }
+
+  _piperTTS(text, outputFile) {
+    const safe = text.replace(/"/g, '\\"');
+    const modelPath = process.env.PIPER_MODEL || '/opt/piper/voices/en_US-lessac-medium.onnx';
+    return new Promise((resolve, reject) => {
+      exec(`echo "${safe}" | piper --model "${modelPath}" --output_file "${outputFile}"`, (err) => {
+        if (err) return reject(new Error(`Piper TTS failed: ${err.message}`));
+        if (!fs.existsSync(outputFile)) return reject(new Error('Piper produced no output'));
+        resolve();
+      });
+    });
+  }
+
+  get _ffmpegPath() { return require('ffmpeg-static'); }
+
+  _runFfmpeg(args) {
+    return new Promise((resolve, reject) => {
+      execFile(this._ffmpegPath, args, (err, _out, stderr) => {
+        if (err) return reject(new Error(stderr || err.message));
+        resolve();
+      });
+    });
+  }
+
+  async _normaliseWav(input, output) {
+    await this._runFfmpeg(['-y', '-i', input, '-ar', '48000', '-ac', '2', '-sample_fmt', 's16', output]);
+  }
+
+  async _normaliseNumber(input, output) {
+    await this._runFfmpeg(['-y', '-i', input, '-af', 'apad=pad_dur=1,atrim=0:1', '-ar', '48000', '-ac', '2', '-sample_fmt', 's16', output]);
+  }
+
+  _libraryCacheKey() {
+    return `.provider-${this.provider}-${this.platform}`;
+  }
+
+  async initializeNumberLibrary() {
+    const markerFile = path.join(this.libraryDir, this._libraryCacheKey());
+    const existingMarkers = fs.readdirSync(this.libraryDir).filter(f => f.startsWith('.provider-'));
+
+    if (!existingMarkers.includes(path.basename(markerFile))) {
+      console.log('🔄 TTS provider changed — clearing number library…');
+      for (const f of fs.readdirSync(this.libraryDir)) {
+        if (!f.startsWith('.provider-') || f !== path.basename(markerFile)) {
+          try { fs.unlinkSync(path.join(this.libraryDir, f)); } catch (_) {}
         }
       }
+      this.numberLibrary.clear();
+      this.libraryInitialized = false;
+    }
 
+    if (this.libraryInitialized) return;
+
+    if (this.provider === 'console') {
       this.libraryInitialized = true;
-      console.log('✅ Number library initialized!');
-
-    } catch (error) {
-      console.error('❌ Failed to initialize number library:', error);
-      throw error;
+      return;
     }
-  }
 
-  // Generate speech from text
-  async generateSpeech(text, options = {}) {
-    switch (this.provider) {
-      case 'console': return this.consoleTTS(text);
-      case 'local':   return this.localTTS(text, options);
-      case 'google':  return this.googleTTS(text, options);
-      case 'azure':   return this.azureTTS(text, options);
-      case 'polly':   return this.amazonPollyTTS(text, options);
-      default:        return this.consoleTTS(text);
+    console.log('🔊 Initialising number library (1–200)…');
+
+    // Collect numbers that still need generating
+    const toGenerate = [];
+    for (let i = 1; i <= 200; i++) {
+      const customFile = this.customAudio.getNumberFile(i);
+      if (customFile) { this.numberLibrary.set(i, customFile); continue; }
+      const libFile = path.join(this.libraryDir, `${i}.wav`);
+      if (fs.existsSync(libFile)) { this.numberLibrary.set(i, libFile); continue; }
+      toGenerate.push(i);
     }
+
+    if (toGenerate.length > 0) {
+      // Piper loads a ~350 MB ONNX model per process — limit to 1 concurrent
+      // on memory-constrained containers. Other providers are lightweight and
+      // can safely run at higher concurrency.
+      const isPiper = this.provider === 'piper';
+      const CONCURRENCY = isPiper ? 1 : 4;
+      if (isPiper) {
+        console.log('⚠️  Piper uses ~350 MB RAM per process. Building library sequentially to avoid OOM.');
+        console.log(`⚠️  This will take ~${toGenerate.length * 2}–${toGenerate.length * 4}s. Library is cached after first build.`);
+      }
+      let completed = 0;
+
+      for (let j = 0; j < toGenerate.length; j += CONCURRENCY) {
+        const chunk = toGenerate.slice(j, j + CONCURRENCY);
+        await Promise.all(chunk.map(async (i) => {
+          const rawFile = path.join(this.libraryDir, `raw_${i}.wav`);
+          const libFile = path.join(this.libraryDir, `${i}.wav`);
+          try {
+            await this._ttsToWav(`${i}.`, rawFile);
+            await this._normaliseNumber(rawFile, libFile);
+            try { fs.unlinkSync(rawFile); } catch (_) {}
+            this.numberLibrary.set(i, libFile);
+          } catch (err) {
+            console.warn(`⚠️  Number ${i} failed: ${err.message}`);
+            try { fs.unlinkSync(rawFile); } catch (_) {}
+          }
+          completed++;
+          if (completed % 40 === 0)
+            console.log(`🔊 Library progress: ${completed}/${toGenerate.length}…`);
+        }));
+      }
+    }
+
+    try { fs.writeFileSync(markerFile, this.provider); } catch (_) {}
+    this.libraryInitialized = true;
+    console.log('✅ Number library ready!');
   }
 
-  async consoleTTS(text) {
-    console.log(`🔊 TTS: ${text}`);
-    return null;
+  resetLibrary() {
+    this.libraryInitialized = false;
+    this.numberLibrary.clear();
+    this.audioCache.clear();
   }
 
-  buildCountdownCacheKey(players) {
-    const normalized = [...players]
-      .map(p => ({ name: String(p.name), t: Number(p.attackStartTime) }))
-      .sort((a, b) => (a.t - b.t) || a.name.localeCompare(b.name));
+  _buildCacheKey(players) {
+    const normalised = [...players]
+      .map(p => ({ n: String(p.name), t: Number(p.attackStartTime) }))
+      .sort((a, b) => a.t - b.t || a.n.localeCompare(b.n));
 
-    const payload = {
-      v: 'sync-v7',
-      platform: this.platform,
-      players: normalized,
-    };
-
-    return crypto.createHash('sha1').update(JSON.stringify(payload)).digest('hex');
+    return crypto.createHash('sha1').update(JSON.stringify({
+      v:         'sync-v9',
+      provider:  this.provider,
+      platform:  this.platform,
+      direction: this.settings.countDirection,
+      intro:     this.settings.introEnabled,
+      players:   normalised,
+    })).digest('hex');
   }
 
   async generateSynchronizedCountdown(players, totalDuration) {
-    try {
-      await this.initializeNumberLibrary();
+    await this.initializeNumberLibrary();
 
-      const cacheKey = this.buildCountdownCacheKey(players);
-      const cachedPath = this.audioCache.get(cacheKey);
-      if (cachedPath && fs.existsSync(cachedPath)) {
-        return createAudioResource(cachedPath);
-      }
+    const cacheKey   = this._buildCacheKey(players);
+    const cachedPath = this.audioCache.get(cacheKey);
+    if (cachedPath && fs.existsSync(cachedPath)) return createAudioResource(cachedPath);
 
-      const ffmpegPath = require('ffmpeg-static');
-      const tempDir = path.join(__dirname, '../temp');
-      if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
+    if (this.provider === 'console') {
+      console.log(`🔊 [console] countdown: ${players.length} players, ${totalDuration}s`);
+      return null;
+    }
 
-      const runFfmpeg = (args) => new Promise((resolve, reject) => {
-        execFile(ffmpegPath, args, (err, stdout, stderr) => {
-          if (err) return reject(new Error(stderr || err.message));
-          resolve();
+    const ts    = Date.now();
+    const parts = [];
+
+    // ── Intro ─────────────────────────────────────────────────────────────────
+    if (this.settings.introEnabled) {
+      const customIntro = this.customAudio.getSpecialFile('intro');
+      if (customIntro) {
+        const normIntro = path.join(this.tempDir, `intro_norm_${ts}.wav`);
+        await this._normaliseWav(customIntro, normIntro);
+        parts.push(normIntro);
+      } else {
+        const first = players.find(p => p.attackStartTime === 0) ?? players[0];
+        let script = `Synchronized attack sequence. ${first.name} starts first. `;
+        players.forEach(p => {
+          script += p.attackStartTime === 0
+            ? `${p.name} starts immediately. `
+            : `${p.name} starts at second ${p.attackStartTime}. `;
         });
-      });
+        script += `${first.name} ready. Three. Two. One. Go. `;
+        const introRaw  = path.join(this.tempDir, `intro_raw_${ts}.wav`);
+        const introNorm = path.join(this.tempDir, `intro_${ts}.wav`);
+        await this._ttsToWav(script, introRaw);
+        await this._normaliseWav(introRaw, introNorm);
+        try { fs.unlinkSync(introRaw); } catch (_) {}
+        parts.push(introNorm);
+      }
+    }
 
-      const firstPlayer = players.find(p => p.attackStartTime === 0) || players[0];
-      const maxTime = Math.max(...players.map(p => p.attackStartTime));
+    // ── Count sequence ────────────────────────────────────────────────────────
+    const maxTime = Math.max(...players.map(p => p.attackStartTime));
+    const countDir = this.settings.countDirection;
+    const sequence = countDir === 'up'
+      ? Array.from({ length: maxTime }, (_, i) => i + 1)
+      : Array.from({ length: maxTime }, (_, i) => maxTime - i);
 
-      let introScript = `Synchronized attack sequence. ${firstPlayer.name} starts first. `;
-      players.forEach((p) => {
-        if (p.attackStartTime === 0) introScript += `${p.name} starts immediately. `;
-        else introScript += `${p.name} starts at second ${p.attackStartTime}. `;
-      });
-      introScript += `${firstPlayer.name} ready. Three. Two. One. Go. `;
+    for (const n of sequence) {
+      const libFile = this.numberLibrary.get(n);
+      if (libFile && fs.existsSync(libFile)) {
+        parts.push(libFile);
+      } else {
+        const raw = path.join(this.tempDir, `raw_${n}_${ts}.wav`);
+        const seg = path.join(this.tempDir, `seg_${n}_${ts}.wav`);
+        await this._ttsToWav(`${n}.`, raw);
+        await this._normaliseNumber(raw, seg);
+        try { fs.unlinkSync(raw); } catch (_) {}
+        parts.push(seg);
+      }
+    }
 
-      const ts = Date.now();
-      const introRaw = path.join(tempDir, `intro_raw_${ts}.wav`);
-      const introFile = path.join(tempDir, `intro_${ts}.wav`);
+    // ── Outro ─────────────────────────────────────────────────────────────────
+    const customComplete = this.customAudio.getSpecialFile('complete');
+    if (customComplete) {
+      const normComplete = path.join(this.tempDir, `complete_norm_${ts}.wav`);
+      await this._normaliseWav(customComplete, normComplete);
+      parts.push(normComplete);
+    } else {
+      const finalRaw  = path.join(this.tempDir, `final_raw_${ts}.wav`);
+      const finalNorm = path.join(this.tempDir, `final_${ts}.wav`);
+      await this._ttsToWav('Sequence complete.', finalRaw);
+      await this._normaliseWav(finalRaw, finalNorm);
+      try { fs.unlinkSync(finalRaw); } catch (_) {}
+      parts.push(finalNorm);
+    }
 
-      await this.generateCrossPlatformTTS(introScript, introRaw);
-      await runFfmpeg(['-y', '-i', introRaw, '-ar', '48000', '-ac', '2', '-sample_fmt', 's16', introFile]);
-      try { fs.unlinkSync(introRaw); } catch (_) {}
+    // ── Concat ────────────────────────────────────────────────────────────────
+    const listFile   = path.join(this.tempDir, `list_${ts}.txt`);
+    const outputFile = path.join(this.tempDir, `sync_countdown_${cacheKey}.wav`);
 
-      const numberFiles = [];
-      for (let i = 1; i <= maxTime; i++) {
-        const numberFile = this.numberLibrary.get(i);
-        if (numberFile && fs.existsSync(numberFile)) {
-          numberFiles.push(numberFile);
-        } else {
-          console.warn(`Number ${i} not found in library, generating on the fly...`);
-          const raw = path.join(tempDir, `raw_${i}_${ts}.wav`);
-          const seg = path.join(tempDir, `seg_${i}_${ts}.wav`);
-          await this.generateCrossPlatformTTS(`${i}.`, raw);
-          await runFfmpeg(['-y', '-i', raw, '-af', 'apad=pad_dur=1,atrim=0:1', '-ar', '48000', '-ac', '2', '-sample_fmt', 's16', seg]);
-          numberFiles.push(seg);
-          try { fs.unlinkSync(raw); } catch (_) {}
+    fs.writeFileSync(listFile,
+      parts.map(f => `file '${f.replace(/\\/g, '/').replace(/'/g, "\\'")}'`).join('\n'));
+
+    await this._runFfmpeg(['-y', '-f', 'concat', '-safe', '0', '-i', listFile, '-c:a', 'pcm_s16le', '-ar', '48000', '-ac', '2', outputFile]);
+
+    try { fs.unlinkSync(listFile); } catch (_) {}
+    // Clean per-run temp files (not library files)
+    for (const f of parts) {
+      if (/_${ts}\.wav$/.test(f)) try { fs.unlinkSync(f); } catch (_) {}
+    }
+
+    this.audioCache.set(cacheKey, outputFile);
+    return createAudioResource(outputFile);
+  }
+
+  async generateSpeech(text) {
+    if (this.provider === 'console') {
+      console.log(`🔊 TTS: ${text}`);
+      return null;
+    }
+    try {
+      const outputFile = path.join(this.tempDir, `tts_${Date.now()}.wav`);
+      await this._ttsToWav(text, outputFile);
+      await new Promise(r => setTimeout(r, 200));
+      if (!fs.existsSync(outputFile)) throw new Error('Audio file not created');
+      const resource = createAudioResource(outputFile);
+      setTimeout(() => { try { fs.unlinkSync(outputFile); } catch (_) {} }, 15_000);
+      return resource;
+    } catch (err) {
+      console.error('TTS error:', err.message);
+      return null;
+    }
+  }
+
+  clearCountdownCache() {
+    let count = 0;
+    try {
+      for (const f of fs.readdirSync(this.tempDir)) {
+        if (f.startsWith('sync_countdown_') && f.endsWith('.wav')) {
+          try { fs.unlinkSync(path.join(this.tempDir, f)); count++; } catch (_) {}
         }
       }
-
-      const finalRaw = path.join(tempDir, `final_raw_${ts}.wav`);
-      const finalWav = path.join(tempDir, `final_${ts}.wav`);
-      await this.generateCrossPlatformTTS("Sequence complete.", finalRaw);
-      await runFfmpeg(['-y', '-i', finalRaw, '-ar', '48000', '-ac', '2', '-sample_fmt', 's16', finalWav]);
-      try { fs.unlinkSync(finalRaw); } catch (_) {}
-
-      const listFile = path.join(tempDir, `list_${ts}.txt`);
-      const outputFile = path.join(tempDir, `sync_countdown_${cacheKey}.wav`);
-      const concatFiles = [introFile, ...numberFiles, finalWav];
-      fs.writeFileSync(listFile, concatFiles.map(f => `file '${f.replace(/\\/g, '/').replace(/'/g, "\\'")}'`).join('\n'));
-
-      await runFfmpeg(['-y', '-f', 'concat', '-safe', '0', '-i', listFile, '-c:a', 'pcm_s16le', '-ar', '48000', '-ac', '2', outputFile]);
-
-      try { fs.unlinkSync(introFile); } catch (_) {}
-      try { fs.unlinkSync(finalWav); } catch (_) {}
-      try { fs.unlinkSync(listFile); } catch (_) {}
-      for (const f of numberFiles) {
-        if (f.includes(`seg_${ts}`)) try { fs.unlinkSync(f); } catch (_) {}
-      }
-
-      this.audioCache.set(cacheKey, outputFile);
-      return createAudioResource(outputFile);
-
-    } catch (error) {
-      console.error('Synchronized countdown error:', error);
-      throw error;
-    }
+    } catch (_) {}
+    this.audioCache.clear();
+    return count;
   }
 
-  async localTTS(text, options = {}) {
+  clearAllCache() {
+    let count = this.clearCountdownCache();
     try {
-      const tempDir = path.join(__dirname, '../temp');
-      if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
-
-      const outputFile = path.join(tempDir, `tts_${Date.now()}.wav`);
-      await this.generateCrossPlatformTTS(text, outputFile);
-
-      return new Promise((resolve, reject) => {
-        setTimeout(() => {
-          if (fs.existsSync(outputFile)) {
-            const audioResource = createAudioResource(outputFile);
-            resolve(audioResource);
-            setTimeout(() => {
-              try { fs.unlinkSync(outputFile); } catch (_) {}
-            }, 10000);
-          } else {
-            reject(new Error('Audio file was not created'));
-          }
-        }, 500);
-      });
-
-    } catch (error) {
-      console.error('Local TTS error:', error);
-      return this.consoleTTS(text);
-    }
+      for (const f of fs.readdirSync(this.libraryDir)) {
+        if (f.endsWith('.wav') || f.startsWith('.provider-')) {
+          try { fs.unlinkSync(path.join(this.libraryDir, f)); count++; } catch (_) {}
+        }
+      }
+    } catch (_) {}
+    this.numberLibrary.clear();
+    this.libraryInitialized = false;
+    return count;
   }
 
-  async googleTTS(text, options = {}) {
-    console.log(`🔊 Google TTS: ${text}`);
-    return null;
-  }
-
-  async azureTTS(text, options = {}) {
-    console.log(`🔊 Azure TTS: ${text}`);
-    return null;
-  }
-
-  async amazonPollyTTS(text, options = {}) {
-    console.log(`🔊 Amazon Polly TTS: ${text}`);
-    return null;
-  }
-
-  getAvailableProviders() {
-    return ['console', 'local', 'google', 'azure', 'polly'];
-  }
-
-  isProviderAvailable(provider) {
-    return this.getAvailableProviders().includes(provider);
-  }
-
-  getCurrentProvider() {
-    return this.provider;
+  getCacheStats() {
+    const countdownFiles = fs.existsSync(this.tempDir)
+      ? fs.readdirSync(this.tempDir).filter(f => f.startsWith('sync_countdown_')).length : 0;
+    const libraryFiles = fs.existsSync(this.libraryDir)
+      ? fs.readdirSync(this.libraryDir).filter(f => f.endsWith('.wav')).length : 0;
+    return { countdownFiles, libraryFiles };
   }
 }
 

@@ -1,57 +1,66 @@
-# Use Ubuntu 22.04 as base image
+# WoS VoiceChat Counter — main Dockerfile (for standalone Docker deployments)
 FROM ubuntu:22.04
 
-# Set environment variables to avoid interactive prompts
 ENV DEBIAN_FRONTEND=noninteractive
 ENV TZ=UTC
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
-    curl \
-    wget \
-    git \
-    build-essential \
-    python3 \
-    python3-pip \
-    festival \
-    festvox-kallpc16k \
-    espeak \
-    espeak-data \
-    ffmpeg \
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        curl \
+        wget \
+        git \
+        build-essential \
+        python3 \
+        python3-pip \
+        ffmpeg \
+        espeak-ng \
+        espeak-ng-data \
+        festival \
+        festvox-kallpc16k \
+        libasound2-dev \
+        libsodium-dev \
+        ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Node.js 22.x (LTS)
-RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
-    && apt-get install -y nodejs
+# Node.js 20 LTS
+RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && apt-get install -y nodejs \
+    && rm -rf /var/lib/apt/lists/*
 
-# Create app directory
+# Optional: Piper Neural TTS
+# Uncomment to add Piper (~350 MB). Then set TTS_PROVIDER=piper in
+# docker-compose.yml or use /settings in Discord.
+#
+# RUN mkdir -p /opt/piper/voices \
+#     && wget -q -O /tmp/piper.tar.gz \
+#        https://github.com/rhasspy/piper/releases/download/2023.11.14-2/piper_linux_x86_64.tar.gz \
+#     && tar -xzf /tmp/piper.tar.gz -C /opt/piper --strip-components=1 \
+#     && rm /tmp/piper.tar.gz \
+#     && chmod +x /opt/piper/piper \
+#     && ln -s /opt/piper/piper /usr/local/bin/piper
+#
+# RUN wget -q -O /opt/piper/voices/en_US-lessac-medium.onnx \
+#        https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx \
+#     && wget -q -O /opt/piper/voices/en_US-lessac-medium.onnx.json \
+#        https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx.json
+#
+# ENV PIPER_MODEL=/opt/piper/voices/en_US-lessac-medium.onnx
+
 WORKDIR /app
 
-# Copy package files
 COPY package*.json ./
+RUN npm ci --omit=dev
 
-# Install Node.js dependencies
-RUN npm ci --only=production
-
-# Copy application code
 COPY . .
 
-# Create necessary directories
-RUN mkdir -p temp/library
+RUN mkdir -p temp/library config/custom_audio
 
-# Set permissions
-RUN chmod +x setup.js
-
-# Create a non-root user for security
-RUN useradd -m -u 1000 botuser && chown -R botuser:botuser /app
+RUN useradd -m -u 1000 botuser \
+    && chown -R botuser:botuser /app
 USER botuser
 
-# Expose port (if needed for future web interface)
 EXPOSE 3000
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD node -e "console.log('Bot health check passed')" || exit 1
+HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
+    CMD node -e "require('./src/BotSettings')" || exit 1
 
-# Default command
-CMD ["npm", "start"] 
+CMD ["node", "index.js"]

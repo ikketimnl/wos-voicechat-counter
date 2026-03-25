@@ -1,200 +1,193 @@
-# CounterBot VC - Docker Deployment
+# Docker Deployment Guide
 
-This guide will help you deploy CounterBot VC using Docker, ensuring consistent operation across all platforms.
+## Pelican / Pterodactyl (yolk image)
 
-## 🐳 Quick Start
+If you're running the bot on a **Pelican** or **Pterodactyl** panel, use the pre-built yolk image published to the GitHub Container Registry:
 
-### Prerequisites
-- Docker installed
-- Docker Compose installed
-- Discord bot credentials
+```
+ghcr.io/ikketimnl/wos-vc-yolk:nodejs_22
+```
 
-### 1. Clone the Repository
+This image is rebuilt automatically by GitHub Actions on every push to `main` using `Dockerfile.yolk`. It includes `espeak-ng`, `festival`, `ffmpeg`, and `libsodium-dev` on top of the standard `yolks:nodejs_22` base.
+
+To enable **Piper Neural TTS** in the yolk image, uncomment the Piper block in `Dockerfile.yolk`, commit, and push to `main` — the CI pipeline will rebuild and publish the updated image automatically.
+
+---
+
+## Quick Start
+
 ```bash
-git clone <repository-url>
-cd counterbotVC
+# 1. Clone and configure
+git clone https://github.com/ikketimnl/wos-voicechat-counter.git
+cd wos-voicechat-counter
+node setup.js
+
+# 2. Build and run
+docker compose up -d
+
+# 3. Check logs
+docker compose logs -f counterbot-vc
 ```
 
-### 2. Configure Your Bot
-Create `config/config.json` with your Discord bot credentials:
-```json
-{
-  "token": "YOUR_DISCORD_BOT_TOKEN",
-  "clientId": "YOUR_CLIENT_ID",
-  "guildId": "YOUR_GUILD_ID"
-}
+---
+
+## Voice Generator (TTS) Options
+
+The bot supports four audio engines. All can be switched at runtime via `/settings`
+in Discord **without rebuilding the container** (except Piper, see below).
+
+| Provider  | Quality   | Install needed? | Notes |
+|-----------|-----------|-----------------|-------|
+| `local`   | Good      | ✅ Pre-installed | Auto-detects espeak-ng / festival |
+| `espeak`  | Robotic   | ✅ Pre-installed | Fastest, lowest CPU |
+| `festival`| Better    | ✅ Pre-installed | Slightly deeper voice |
+| `piper`   | Natural   | ⚠️ Extra steps  | Neural TTS, most realistic |
+| `console` | None      | ✅ Always        | Testing/debug only |
+
+### Switching providers at runtime
+
+Use `/settings` in Discord → dropdown selector. The number library will
+automatically regenerate with the new voice. Cached files from the old provider
+are deleted to free disk space.
+
+---
+
+## Sysadmin: Installing Piper Neural TTS
+
+Piper produces noticeably more natural speech. It requires an extra ~350 MB
+of disk space (binary + voice model).
+
+### Step 1 — Enable Piper in the Dockerfile
+
+Open `Dockerfile` and uncomment the Piper block (~lines 40–60):
+
+```dockerfile
+RUN mkdir -p /opt/piper/voices \
+    && wget -q -O /tmp/piper.tar.gz \
+       https://github.com/rhasspy/piper/releases/download/v1.2.0/piper_linux_x86_64.tar.gz \
+    && tar -xzf /tmp/piper.tar.gz -C /opt/piper --strip-components=1 \
+    && rm /tmp/piper.tar.gz \
+    && chmod +x /opt/piper/piper \
+    && ln -s /opt/piper/piper /usr/local/bin/piper
+
+RUN wget -q -O /opt/piper/voices/en_US-lessac-medium.onnx \
+       https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx \
+    && wget -q -O /opt/piper/voices/en_US-lessac-medium.onnx.json \
+       https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx.json
+
+ENV PIPER_MODEL=/opt/piper/voices/en_US-lessac-medium.onnx
 ```
 
-### 3. Deploy with One Command
+### Step 2 — Rebuild the container
+
 ```bash
-./deploy.sh
+docker compose down
+docker compose build --no-cache
+docker compose up -d
 ```
 
-That's it! Your bot will be running in a Docker container.
+### Step 3 — Activate in Discord
 
-## 📋 Manual Deployment
+Use `/settings` → change **Voice Generator** → select **Piper Neural TTS**.
+The number library will regenerate automatically (takes ~2–5 minutes on first run).
 
-If you prefer manual deployment:
+### Alternative: Different Piper voice
 
-### Build the Image
+Replace the model URLs with any voice from
+https://huggingface.co/rhasspy/piper-voices and update the `PIPER_MODEL`
+environment variable accordingly.
+
+---
+
+## Clearing the audio cache
+
+Generated WAV files accumulate in `temp/` over time.
+
+**From Discord (easiest):**
+- `/settings` → **Clear Countdown Cache** — removes only final countdown files
+- `/settings` → **Clear ALL Cache** — removes library + countdowns (forces full regeneration)
+
+**From host shell:**
 ```bash
-docker-compose build
+# Remove only final countdown files (library stays)
+docker exec counterbot-vc find /app/temp -maxdepth 1 -name 'sync_countdown_*.wav' -delete
+
+# Remove everything under temp/ (full regeneration on next launch)
+docker exec counterbot-vc rm -rf /app/temp/library /app/temp/sync_countdown_*.wav
+
+# Or from the host (if volumes are mounted at ./temp):
+rm -rf ./temp/library ./temp/sync_countdown_*.wav
 ```
 
-### Start the Container
-```bash
-docker-compose up -d
-```
+---
 
-### View Logs
-```bash
-docker-compose logs -f
-```
+## Custom Audio Files
 
-## 🔧 Container Features
+Users can upload custom WAV/MP3/OGG files via `/audio upload` in Discord.
 
-### Pre-installed Dependencies
-- **Ubuntu 22.04** base image
-- **Node.js 18.x** (LTS)
-- **Festival TTS** - High-quality speech synthesis
-- **eSpeak** - Fast speech synthesis
-- **FFmpeg** - Audio processing
-- **All required system libraries**
+Files are stored in `config/custom_audio/` which is volume-mounted, so they
+survive container rebuilds. No sysadmin action is needed.
 
-### Persistent Storage
-- **`./config/`** - Bot configuration (mounted)
-- **`./temp/`** - Audio cache and library (mounted)
+**Naming convention (users must follow this):**
+- `1.wav` through `200.wav` — replace TTS for that number
+- `intro.wav` — replaces the opening announcement
+- `complete.wav` — replaces the "Sequence complete" closing
 
-### Security
-- **Non-root user** (botuser)
-- **Resource limits** (512MB memory)
-- **Health checks** enabled
+---
 
-## 🎯 TTS Configuration
-
-The container uses **Festival TTS** as the primary speech engine, which provides:
-- ✅ **High-quality voice synthesis**
-- ✅ **Consistent cross-platform operation**
-- ✅ **No platform-specific voice issues**
-- ✅ **Reliable performance**
-
-## 📊 Management Commands
-
-### View Container Status
-```bash
-docker-compose ps
-```
-
-### View Logs
-```bash
-docker-compose logs -f
-```
-
-### Stop the Bot
-```bash
-docker-compose down
-```
-
-### Restart the Bot
-```bash
-docker-compose restart
-```
-
-### Update the Bot
-```bash
-git pull
-./deploy.sh
-```
-
-## 🔍 Troubleshooting
-
-### Container Won't Start
-```bash
-# Check logs
-docker-compose logs
-
-# Check if config.json exists
-ls -la config/
-```
-
-### Audio Issues
-```bash
-# Check if temp directory is writable
-docker-compose exec counterbot-vc ls -la /app/temp
-
-# Restart container
-docker-compose restart
-```
-
-### Memory Issues
-```bash
-# Check container resource usage
-docker stats counterbot-vc
-
-# Increase memory limit in docker-compose.yml if needed
-```
-
-## 🌐 Environment Variables
-
-You can customize the container behavior:
+## Volumes
 
 ```yaml
-environment:
-  - NODE_ENV=production
-  - TTS_PROVIDER=local
-  - TZ=UTC
+volumes:
+  - ./config:/app/config   # settings.json, config.json, custom_audio/
+  - ./temp:/app/temp        # number library WAVs, countdown cache
 ```
 
-## 📁 Directory Structure
+Both are mounted from the host so rebuilding the image does **not** wipe settings
+or the audio cache.
 
-```
-counterbotVC/
-├── config/
-│   └── config.json          # Bot credentials
-├── temp/                    # Audio cache (auto-created)
-├── Dockerfile              # Container definition
-├── docker-compose.yml      # Orchestration
-├── deploy.sh               # Deployment script
-└── ...                     # Bot source code
-```
+---
 
-## 🚀 Production Deployment
+## Bot Updates (In-Bot)
 
-For production environments:
+The `/botupdate` command checks GitHub Releases and can pull updates automatically.
 
-### 1. Use Docker Registry
+**Requirement:** The container must have been started from a git-cloned working
+directory (not a Docker-image-only copy). This is the default when following
+this guide (`git clone` → `docker compose up`).
+
+If you see *"No .git directory found"*, the update must be applied manually:
+
 ```bash
-# Build and tag
-docker build -t your-registry/counterbot-vc:latest .
-
-# Push to registry
-docker push your-registry/counterbot-vc:latest
+git pull
+docker compose build --no-cache
+docker compose up -d
 ```
 
-### 2. Use Docker Swarm or Kubernetes
-```bash
-# Deploy to swarm
-docker stack deploy -c docker-compose.yml counterbot
+---
+
+## Resource Limits
+
+```yaml
+deploy:
+  resources:
+    limits:
+      memory: 768M
+    reservations:
+      memory: 256M
 ```
 
-### 3. Use Reverse Proxy
-Add to your nginx/apache configuration to expose web interface (future feature).
+Piper uses slightly more CPU during generation. Consider increasing the limit
+to `1G` if you experience timeouts when the library is first built.
 
-## 🎉 Benefits
+---
 
-- ✅ **Zero setup** - Works out of the box
-- ✅ **Cross-platform** - Same container runs everywhere
-- ✅ **Consistent TTS** - Festival provides reliable voice synthesis
-- ✅ **Easy updates** - Just rebuild and restart
-- ✅ **Persistent data** - Config and cache survive restarts
-- ✅ **Resource efficient** - Lightweight Ubuntu container
+## Troubleshooting
 
-## 📞 Support
-
-If you encounter issues:
-1. Check the logs: `docker-compose logs -f`
-2. Verify your config.json is correct
-3. Ensure Docker has sufficient resources
-4. Check Discord bot permissions
-
-Happy coordinating! 🎤⚡ 
+| Symptom | Likely cause | Fix |
+|---------|-------------|-----|
+| No audio in voice channel | TTS failed silently | Check `docker compose logs` for TTS errors |
+| "eSpeak produced no file" | espeak-ng not found | Ensure espeak-ng is installed (it is in the default Dockerfile) |
+| Piper says "command not found" | Piper block not uncommented | Follow Piper installation steps above |
+| Cache files filling disk | Old countdown files | Use `/settings` → Clear Cache |
+| Bot disconnects after ~5 min | Discord idle disconnect | Use `/join` again; bot auto-reconnects on next launch |
