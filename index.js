@@ -1,6 +1,6 @@
 'use strict';
 
-const { Client, GatewayIntentBits } = require('discord.js');
+const { Client, GatewayIntentBits, MessageFlags } = require('discord.js');
 const path = require('path');
 const fs   = require('fs');
 
@@ -57,7 +57,7 @@ client.on('interactionCreate', async (interaction) => {
     }
   } catch (err) {
     console.error('Unhandled interaction error:', err);
-    const reply = { content: '❌ An unexpected error occurred.', ephemeral: true };
+    const reply = { content: '❌ An unexpected error occurred.', flags: MessageFlags.Ephemeral };
     try {
       if (interaction.deferred || interaction.replied) await interaction.followUp(reply);
       else await interaction.reply(reply);
