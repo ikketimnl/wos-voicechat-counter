@@ -3,7 +3,7 @@
 A Discord bot that coordinates synchronized attacks in **Whiteout Survival** by announcing a voice countdown so all players hit their targets at the same moment.
 
 ---
-## Wiki
+## 📚 Wiki
 
 We made a github wiki for the bot with all kinds of guides (ai generated) you can find it all [here](https://github.com/ikketimnl/wos-voicechat-counter/wiki)
 
