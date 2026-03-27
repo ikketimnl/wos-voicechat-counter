@@ -170,7 +170,7 @@ class CommandHandler {
     }
 
     if (id === 'settings_cycle_intro_speed') {
-      const speeds = ['normal', 'slower', 'slow'];
+      const speeds = ['normal', 'slower', 'slow', 'slowest'];
       const current = this.settings.introSpeed ?? 'normal';
       const next = speeds[(speeds.indexOf(current) + 1) % speeds.length];
       this.settings.introSpeed = next;
@@ -516,8 +516,8 @@ class CommandHandler {
         .addOptions(BotSettings.supportedProviders().map(p => ({
           label:       BotSettings.providerLabel(p),
           value:       p,
-          description: p === 'local' ? 'Auto-detects best available' :
-                       p === 'piper' ? 'Requires installation (see DOCKER.md) slow on low ram hostings' : undefined,
+          description: p === 'local' ? 'Auto-detects fasted and best available' :
+                       p === 'piper' ? 'Best quality but slow first time generation on low resource hostings' : undefined,
           default:     p === provider,
         }))),
     );
