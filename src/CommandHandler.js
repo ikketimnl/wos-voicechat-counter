@@ -437,7 +437,7 @@ class CommandHandler {
         { name: '🔊 TTS',        value: BotSettings.providerLabel(provider),          inline: true },
         { name: '🔢 Direction',  value: dir === 'up' ? 'Count Up ↑' : 'Count Down ↓', inline: true },
         { name: '📢 Intro',      value: intro ? '✅ Enabled' : '❌ Disabled',         inline: true },
-        { name: '🐢 Intro Speed', value: { normal: 'Normal', slower: 'Slower', slow: 'Slow' }[this.settings.get('introSpeed') ?? 'normal'], inline: true },
+        { name: '🐢 Intro Speed', value: { normal: 'Normal', slower: 'Slower', slow: 'Slow', slowest: 'Slowest' }[this.settings.get('introSpeed') ?? 'normal'], inline: true },
         { name: '💾 Cache',      value: `${cacheStats.libraryFiles} lib / ${cacheStats.countdownFiles} countdowns`, inline: true },
       )
       .setTimestamp();
@@ -483,7 +483,7 @@ class CommandHandler {
         },
         {
           name:   '🐢 Intro Speed',
-          value:  `**Current:** ${{ normal: '🐇 Normal', slower: '🐢 Slower', slow: '🦥 Slow' }[this.settings.introSpeed ?? 'normal']}`,
+          value:  `**Current:** ${{ normal: '🐇 Normal', slower: '🐢 Slower', slow: '🐌 Slow', slowest: '🦥 Slowest' }[this.settings.introSpeed ?? 'normal']}`,
           inline: true,
         },
         {
@@ -534,7 +534,7 @@ class CommandHandler {
         .setStyle(ButtonStyle.Primary),
       new ButtonBuilder()
         .setCustomId('settings_cycle_intro_speed')
-        .setLabel(`🐢 Intro Speed: ${{ normal: 'Normal', slower: 'Slower', slow: 'Slow' }[this.settings.introSpeed ?? 'normal']}`)
+        .setLabel(`🐢 Intro Speed: ${{ normal: 'Normal', slower: 'Slower', slow: 'Slow', slowest: 'Slowest' }[this.settings.introSpeed ?? 'normal']}`)
         .setStyle(ButtonStyle.Secondary),
       new ButtonBuilder()
         .setCustomId('settings_refresh')
