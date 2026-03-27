@@ -28,23 +28,23 @@ RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
     && rm -rf /var/lib/apt/lists/*
 
 # Optional: Piper Neural TTS
-# Uncomment to add Piper (~350 MB). Then set TTS_PROVIDER=piper in
+# comment to remove Piper (~350 MB). Then unset TTS_PROVIDER=piper in
 # docker-compose.yml or use /settings in Discord.
 #
-# RUN mkdir -p /opt/piper/voices \
-#     && wget -q -O /tmp/piper.tar.gz \
-#        https://github.com/rhasspy/piper/releases/download/2023.11.14-2/piper_linux_x86_64.tar.gz \
-#     && tar -xzf /tmp/piper.tar.gz -C /opt/piper --strip-components=1 \
-#     && rm /tmp/piper.tar.gz \
-#     && chmod +x /opt/piper/piper \
-#     && ln -s /opt/piper/piper /usr/local/bin/piper
-#
-# RUN wget -q -O /opt/piper/voices/en_US-lessac-medium.onnx \
-#        https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx \
-#     && wget -q -O /opt/piper/voices/en_US-lessac-medium.onnx.json \
-#        https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx.json
-#
-# ENV PIPER_MODEL=/opt/piper/voices/en_US-lessac-medium.onnx
+RUN mkdir -p /opt/piper/voices \
+     && wget -q -O /tmp/piper.tar.gz \
+        https://github.com/rhasspy/piper/releases/download/2023.11.14-2/piper_linux_x86_64.tar.gz \
+     && tar -xzf /tmp/piper.tar.gz -C /opt/piper --strip-components=1 \
+     && rm /tmp/piper.tar.gz \
+     && chmod +x /opt/piper/piper \
+     && ln -s /opt/piper/piper /usr/local/bin/piper
+
+ RUN wget -q -O /opt/piper/voices/en_US-lessac-medium.onnx \
+        https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx \
+     && wget -q -O /opt/piper/voices/en_US-lessac-medium.onnx.json \
+        https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx.json
+
+ ENV PIPER_MODEL=/opt/piper/voices/en_US-lessac-medium.onnx
 
 WORKDIR /app
 

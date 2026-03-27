@@ -65,10 +65,17 @@ class VoiceManager {
       }
     });
 
-    // Wait for the connection to be fully established (up to 30 s).
-    // This must happen before returning so that any command immediately
-    // following /join (e.g. /launch) finds the connection in Ready state.
-    await entersState(connection, VoiceConnectionStatus.Ready, 30_000);
+    // Wait for the connection to be fully established (up to 60 s).
+    // On some nodes UDP negotiation cycles through connecting → connecting
+    // several times before settling; 30 s was not always enough.
+    try {
+      await entersState(connection, VoiceConnectionStatus.Ready, 60_000);
+    } catch {
+      connection.destroy();
+      this.connections.delete(interaction.guildId);
+      this.audioPlayers.delete(interaction.guildId);
+      throw new Error('Timed out waiting for voice connection. The bot joined successfully — try /join again.');
+    }
 
     return connection;
   }

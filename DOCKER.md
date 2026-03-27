@@ -10,8 +10,6 @@ ghcr.io/ikketimnl/wos-vc-yolk:nodejs_22
 
 This image is rebuilt automatically by GitHub Actions on every push to `main` using `Dockerfile.yolk`. It includes `espeak-ng`, `festival`, `ffmpeg`, and `libsodium-dev` on top of the standard `yolks:nodejs_22` base.
 
-To enable **Piper Neural TTS** in the yolk image, uncomment the Piper block in `Dockerfile.yolk`, commit, and push to `main` — the CI pipeline will rebuild and publish the updated image automatically.
-
 ---
 
 ## Quick Start
@@ -41,7 +39,7 @@ in Discord **without rebuilding the container** (except Piper, see below).
 | `local`   | Good      | ✅ Pre-installed | Auto-detects espeak-ng / festival |
 | `espeak`  | Robotic   | ✅ Pre-installed | Fastest, lowest CPU |
 | `festival`| Better    | ✅ Pre-installed | Slightly deeper voice |
-| `piper`   | Natural   | ⚠️ Extra steps  | Neural TTS, most realistic |
+| `piper`   | Natural   | ✅ Pre-installed | Neural TTS, most realistic, slower first time generation of files |
 | `console` | None      | ✅ Always        | Testing/debug only |
 
 ### Switching providers at runtime
@@ -52,44 +50,10 @@ are deleted to free disk space.
 
 ---
 
-## Sysadmin: Installing Piper Neural TTS
+## Sysadmin: Note about Piper Neural TTS
 
 Piper produces noticeably more natural speech. It requires an extra ~350 MB
 of disk space (binary + voice model).
-
-### Step 1 — Enable Piper in the Dockerfile
-
-Open `Dockerfile` and uncomment the Piper block (~lines 40–60):
-
-```dockerfile
-RUN mkdir -p /opt/piper/voices \
-    && wget -q -O /tmp/piper.tar.gz \
-       https://github.com/rhasspy/piper/releases/download/v1.2.0/piper_linux_x86_64.tar.gz \
-    && tar -xzf /tmp/piper.tar.gz -C /opt/piper --strip-components=1 \
-    && rm /tmp/piper.tar.gz \
-    && chmod +x /opt/piper/piper \
-    && ln -s /opt/piper/piper /usr/local/bin/piper
-
-RUN wget -q -O /opt/piper/voices/en_US-lessac-medium.onnx \
-       https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx \
-    && wget -q -O /opt/piper/voices/en_US-lessac-medium.onnx.json \
-       https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx.json
-
-ENV PIPER_MODEL=/opt/piper/voices/en_US-lessac-medium.onnx
-```
-
-### Step 2 — Rebuild the container
-
-```bash
-docker compose down
-docker compose build --no-cache
-docker compose up -d
-```
-
-### Step 3 — Activate in Discord
-
-Use `/settings` → change **Voice Generator** → select **Piper Neural TTS**.
-The number library will regenerate automatically (takes ~2–5 minutes on first run).
 
 ### Alternative: Different Piper voice
 
@@ -188,6 +152,5 @@ to `1G` if you experience timeouts when the library is first built.
 |---------|-------------|-----|
 | No audio in voice channel | TTS failed silently | Check `docker compose logs` for TTS errors |
 | "eSpeak produced no file" | espeak-ng not found | Ensure espeak-ng is installed (it is in the default Dockerfile) |
-| Piper says "command not found" | Piper block not uncommented | Follow Piper installation steps above |
 | Cache files filling disk | Old countdown files | Use `/settings` → Clear Cache |
 | Bot disconnects after ~5 min | Discord idle disconnect | Use `/join` again; bot auto-reconnects on next launch |

@@ -64,6 +64,37 @@ class TTSService {
     return this._platformTTS(text, outputFile);
   }
 
+  // ── Intro speed helpers ──────────────────────────────────────────────────
+
+  /** Maps introSpeed setting to ffmpeg atempo value (< 1.0 = slower). */
+  _speedAtempo() {
+    const speed = this.settings.get('introSpeed') ?? 'normal';
+    if (speed === 'slower') return 0.80;
+    if (speed === 'slow')   return 0.65;
+    if (speed === 'slowest')   return 0.40;
+    return 1.0;
+  }
+
+  /**
+   * Like _ttsToWav but applies the introSpeed setting via ffmpeg atempo.
+   * Used only for intro/outro speech — numbers always stay at normal speed.
+   */
+  async _ttsToWavIntro(text, outputFile) {
+    const atempo = this._speedAtempo();
+    if (atempo === 1.0) return this._ttsToWav(text, outputFile);
+
+    // Generate at normal speed into a temp file, then re-pitch with ffmpeg
+    const rawPath = outputFile.replace(/\.wav$/, '_spd_raw.wav');
+    await this._ttsToWav(text, rawPath);
+    await this._runFfmpeg([
+      '-y', '-i', rawPath,
+      '-af', `atempo=${atempo}`,
+      '-ar', '48000', '-ac', '2', '-sample_fmt', 's16',
+      outputFile,
+    ]);
+    try { fs.unlinkSync(rawPath); } catch (_) {}
+  }
+
   async _platformTTS(text, outputFile) {
     if (this.platform === 'win32') {
       const voice = await this._getWindowsVoice();
@@ -241,6 +272,7 @@ class TTSService {
       platform:  this.platform,
       direction: this.settings.countDirection,
       intro:     this.settings.introEnabled,
+      introSpeed: this.settings.get('introSpeed') ?? 'normal',
       players:   normalised,
     })).digest('hex');
   }
@@ -278,7 +310,7 @@ class TTSService {
         script += `${first.name} ready. Three. Two. One. Go. `;
         const introRaw  = path.join(this.tempDir, `intro_raw_${ts}.wav`);
         const introNorm = path.join(this.tempDir, `intro_${ts}.wav`);
-        await this._ttsToWav(script, introRaw);
+        await this._ttsToWavIntro(script, introRaw);
         await this._normaliseWav(introRaw, introNorm);
         try { fs.unlinkSync(introRaw); } catch (_) {}
         parts.push(introNorm);
@@ -315,7 +347,7 @@ class TTSService {
     } else {
       const finalRaw  = path.join(this.tempDir, `final_raw_${ts}.wav`);
       const finalNorm = path.join(this.tempDir, `final_${ts}.wav`);
-      await this._ttsToWav('Sequence complete.', finalRaw);
+      await this._ttsToWavIntro('Sequence complete.', finalRaw);
       await this._normaliseWav(finalRaw, finalNorm);
       try { fs.unlinkSync(finalRaw); } catch (_) {}
       parts.push(finalNorm);

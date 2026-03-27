@@ -22,6 +22,7 @@ class BotSettings {
       ttsProvider:      'local',      // local | espeak | festival | piper | console
       countDirection:   'down',       // down | up
       introEnabled:     true,         // play rally intro before countdown
+      introSpeed:       'normal',    // normal | slower | slow
       customAudioDir:   null,         // path to user-supplied WAV files (null = use TTS)
       voiceRate:        170,          // words-per-minute hint for macOS say
       version:          null,         // set after first run by UpdateManager
@@ -85,6 +86,9 @@ class BotSettings {
 
   get introEnabled()   { return this.get('introEnabled'); }
   set introEnabled(v)  { this.set('introEnabled', Boolean(v)); }
+
+  get introSpeed()     { return this.get('introSpeed'); }
+  set introSpeed(v)    { this.set('introSpeed', v); }
 
   get customAudioDir() { return this.get('customAudioDir'); }
   set customAudioDir(v){ this.set('customAudioDir', v); }
