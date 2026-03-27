@@ -15,7 +15,7 @@ services:
       # Options: local | espeak | festival | piper | console
       - TTS_PROVIDER=local
       # Uncomment to specify a custom Piper model path (if Piper is enabled in Dockerfile):
-      # - PIPER_MODEL=/opt/piper/voices/en_US-lessac-medium.onnx
+      - PIPER_MODEL=/opt/piper/voices/en_US-lessac-medium.onnx
 
     volumes:
       # config/ holds config.json, settings.json, and custom_audio/
