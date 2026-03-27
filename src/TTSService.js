@@ -71,6 +71,7 @@ class TTSService {
     const speed = this.settings.get('introSpeed') ?? 'normal';
     if (speed === 'slower') return 0.80;
     if (speed === 'slow')   return 0.65;
+    if (speed === 'slowest')   return 0.40;
     return 1.0;
   }
 
