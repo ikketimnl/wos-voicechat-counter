@@ -7,23 +7,22 @@ const {
   ButtonBuilder,
   ButtonStyle,
   StringSelectMenuBuilder,
-  AttachmentBuilder,
-  PermissionFlagsBits,
   MessageFlags,
 } = require('discord.js');
 const path    = require('path');
 const https   = require('https');
-const { BotSettings }      = require('./BotSettings');
-const { UpdateManager }    = require('./UpdateManager');
+const http    = require('http');
+const { BotSettings }        = require('./BotSettings');
+const { UpdateManager }      = require('./UpdateManager');
 const { CustomAudioManager } = require('./CustomAudioManager');
 
 class CommandHandler {
   constructor(client, settings, customAudio) {
-    this.client       = client;
-    this.settings     = settings;
-    this.customAudio  = customAudio;
+    this.client        = client;
+    this.settings      = settings;
+    this.customAudio   = customAudio;
     this.updateManager = new UpdateManager();
-    this.commands     = new Map();
+    this.commands      = new Map();
     this._initCommands();
   }
 
@@ -79,8 +78,6 @@ class CommandHandler {
     this.commands.set('stop', cmd('stop', 'Stop active countdown').toJSON());
 
     this.commands.set('status', cmd('status', 'Show bot status').toJSON());
-
-    // ── New commands ─────────────────────────────────────────────────────────
 
     this.commands.set('settings', cmd('settings', 'Open the bot settings menu').toJSON());
 
@@ -152,8 +149,8 @@ class CommandHandler {
     } catch (err) {
       console.error(`[CommandHandler] Error in ${interaction.commandName}:`, err);
       const reply = { content: `❌ ${err.message}`, flags: MessageFlags.Ephemeral };
-      if (interaction.deferred || interaction.replied) await interaction.followUp(reply);
-      else await interaction.reply(reply);
+      if (interaction.deferred || interaction.replied) await interaction.followUp(reply).catch(() => {});
+      else await interaction.reply(reply).catch(() => {});
     }
   }
 
@@ -170,9 +167,9 @@ class CommandHandler {
     }
 
     if (id === 'settings_cycle_intro_speed') {
-      const speeds = ['normal', 'slower', 'slow', 'slowest'];
+      const speeds  = ['normal', 'slower', 'slow', 'slowest'];
       const current = this.settings.introSpeed ?? 'normal';
-      const next = speeds[(speeds.indexOf(current) + 1) % speeds.length];
+      const next    = speeds[(speeds.indexOf(current) + 1) % speeds.length];
       this.settings.introSpeed = next;
       this.client.voiceManager.getTTSService().audioCache.clear();
       return this._sendSettingsMenu(interaction, true);
@@ -205,6 +202,9 @@ class CommandHandler {
       this.client.voiceManager.getTTSService().resetLibrary();
       return this._sendSettingsMenu(interaction, true);
     }
+
+    // Unknown component — reply so Discord doesn't mark the interaction as failed
+    await interaction.reply({ content: '❓ This button is no longer active.', flags: MessageFlags.Ephemeral }).catch(() => {});
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -215,12 +215,19 @@ class CommandHandler {
     const name    = interaction.options.getString('playername');
     const seconds = interaction.options.getInteger('seconds');
     const group   = interaction.options.getInteger('group') ?? 1;
-    const player  = this.client.playerManager.registerPlayer(name, seconds, group);
+
+    // Warn if overwriting an existing player
+    const exists = this.client.playerManager.hasPlayer(name);
+    const player = this.client.playerManager.registerPlayer(name, seconds, group);
 
     const embed = new EmbedBuilder()
-      .setTitle('✅ Player Registered!')
-      .setColor('#4CAF50')
-      .setDescription(`**${name}** registered with **${seconds}s** travel time in **Attack Group ${group}**.`)
+      .setTitle(exists ? '🔄 Player Updated!' : '✅ Player Registered!')
+      .setColor(exists ? '#FF9800' : '#4CAF50')
+      .setDescription(
+        exists
+          ? `**${name}** already existed — updated to **${seconds}s** in **Attack Group ${group}**.`
+          : `**${name}** registered with **${seconds}s** travel time in **Attack Group ${group}**.`,
+      )
       .addFields(
         { name: 'Total Players', value: String(this.client.playerManager.getPlayerCount()), inline: true },
         { name: 'Attack Group',  value: `Group ${group}`, inline: true },
@@ -299,8 +306,11 @@ class CommandHandler {
     const groups  = this.client.playerManager.getAttackGroups();
 
     if (players.length === 0) {
-      const embed = new EmbedBuilder().setTitle('📋 Player List').setColor('#607D8B')
-        .setDescription('No players registered yet.').setTimestamp();
+      const embed = new EmbedBuilder()
+        .setTitle('📋 Player List')
+        .setColor('#607D8B')
+        .setDescription('No players registered yet.')
+        .setTimestamp();
       return interaction.reply({ embeds: [embed] });
     }
 
@@ -339,6 +349,7 @@ class CommandHandler {
       .setTimestamp();
     await interaction.editReply({ embeds: [embed] });
   }
+
   async _handleLeave(interaction) {
     this.client.voiceManager.leaveVoiceChannel(interaction.guildId);
     const embed = new EmbedBuilder()
@@ -394,7 +405,7 @@ class CommandHandler {
           inline: false,
         })),
         { name: '🎤 Voice', value: this.client.voiceManager.isInVoiceChannel(interaction.guildId) ? '✅ Connected' : '❌ Not Connected', inline: true },
-        { name: '🚀 Ready',  value: this.client.voiceManager.isInVoiceChannel(interaction.guildId) ? '✅ Yes' : '❌ Use /join', inline: true },
+        { name: '🚀 Ready', value: this.client.voiceManager.isInVoiceChannel(interaction.guildId) ? '✅ Yes' : '❌ Use /join', inline: true },
       )
       .setTimestamp();
 
@@ -417,28 +428,28 @@ class CommandHandler {
   }
 
   async _handleStatus(interaction) {
-    const players       = this.client.playerManager.getPlayerCount();
-    const groups        = this.client.playerManager.getAttackGroups();
-    const inVoice       = this.client.voiceManager.isInVoiceChannel(interaction.guildId);
-    const countdownOn   = this.client.voiceManager.isCountdownActive(interaction.guildId);
-    const cacheStats    = this.client.voiceManager.getTTSService().getCacheStats();
-    const provider      = this.settings.ttsProvider;
-    const dir           = this.settings.countDirection;
-    const intro         = this.settings.introEnabled;
+    const players     = this.client.playerManager.getPlayerCount();
+    const groups      = this.client.playerManager.getAttackGroups();
+    const inVoice     = this.client.voiceManager.isInVoiceChannel(interaction.guildId);
+    const countdownOn = this.client.voiceManager.isCountdownActive(interaction.guildId);
+    const cacheStats  = this.client.voiceManager.getTTSService().getCacheStats();
+    const provider    = this.settings.ttsProvider;
+    const dir         = this.settings.countDirection;
+    const intro       = this.settings.introEnabled;
 
     const embed = new EmbedBuilder()
       .setTitle('📊 Bot Status')
       .setColor('#2196F3')
       .addFields(
-        { name: '🎮 Players',    value: String(players),    inline: true },
-        { name: '⚔️ Groups',    value: groups.length ? groups.join(', ') : 'None', inline: true },
-        { name: '🎤 Voice',      value: inVoice ? '✅ Connected' : '❌ Not Connected', inline: true },
-        { name: '⏱️ Countdown', value: countdownOn ? '🔄 Running' : '⏹️ Idle',      inline: true },
-        { name: '🔊 TTS',        value: BotSettings.providerLabel(provider),          inline: true },
-        { name: '🔢 Direction',  value: dir === 'up' ? 'Count Up ↑' : 'Count Down ↓', inline: true },
-        { name: '📢 Intro',      value: intro ? '✅ Enabled' : '❌ Disabled',         inline: true },
+        { name: '🎮 Players',     value: String(players),    inline: true },
+        { name: '⚔️ Groups',     value: groups.length ? groups.join(', ') : 'None', inline: true },
+        { name: '🎤 Voice',       value: inVoice     ? '✅ Connected' : '❌ Not Connected', inline: true },
+        { name: '⏱️ Countdown',  value: countdownOn ? '🔄 Running'   : '⏹️ Idle',         inline: true },
+        { name: '🔊 TTS',         value: BotSettings.providerLabel(provider),               inline: true },
+        { name: '🔢 Direction',   value: dir === 'up' ? 'Count Up ↑' : 'Count Down ↓',     inline: true },
+        { name: '📢 Intro',       value: intro ? '✅ Enabled' : '❌ Disabled',              inline: true },
         { name: '🐢 Intro Speed', value: { normal: 'Normal', slower: 'Slower', slow: 'Slow', slowest: 'Slowest' }[this.settings.get('introSpeed') ?? 'normal'], inline: true },
-        { name: '💾 Cache',      value: `${cacheStats.libraryFiles} lib / ${cacheStats.countdownFiles} countdowns`, inline: true },
+        { name: '💾 Cache',       value: `${cacheStats.libraryFiles} lib / ${cacheStats.countdownFiles} countdowns`, inline: true },
       )
       .setTimestamp();
 
@@ -454,10 +465,10 @@ class CommandHandler {
   }
 
   async _sendSettingsMenu(interaction, isUpdate) {
-    const provider = this.settings.ttsProvider;
-    const dir      = this.settings.countDirection;
-    const intro    = this.settings.introEnabled;
-    const stats    = this.client.voiceManager.getTTSService().getCacheStats();
+    const provider    = this.settings.ttsProvider;
+    const dir         = this.settings.countDirection;
+    const intro       = this.settings.introEnabled;
+    const stats       = this.client.voiceManager.getTTSService().getCacheStats();
     const customFiles = this.customAudio.listFiles();
 
     const embed = new EmbedBuilder()
@@ -516,8 +527,8 @@ class CommandHandler {
         .addOptions(BotSettings.supportedProviders().map(p => ({
           label:       BotSettings.providerLabel(p),
           value:       p,
-          description: p === 'local' ? 'Auto-detects fasted and best available' :
-                       p === 'piper' ? 'Best quality but slow first time generation on low resource hostings' : undefined,
+          description: p === 'local' ? 'Auto-detects fastest and best available' :
+                       p === 'piper' ? 'Best quality but slow on first generation' : undefined,
           default:     p === provider,
         }))),
     );
@@ -542,7 +553,7 @@ class CommandHandler {
         .setStyle(ButtonStyle.Secondary),
     );
 
-    // Button row 2 – cache controls
+    // Button row 2 — cache controls
     const row2 = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
         .setCustomId('settings_clear_cache')
@@ -557,7 +568,7 @@ class CommandHandler {
     const payload = {
       embeds:     [embed],
       components: [providerSelect, row1, row2],
-      flags: MessageFlags.Ephemeral,
+      flags:      MessageFlags.Ephemeral,
     };
 
     if (isUpdate) {
@@ -590,7 +601,7 @@ class CommandHandler {
       );
     }
 
-    // Update available — show info and offer update button
+    // Update available — show embed with confirm button
     const embed = new EmbedBuilder()
       .setTitle('🆕 Update Available!')
       .setColor('#FF9800')
@@ -612,22 +623,45 @@ class CommandHandler {
         .setURL(check.releaseUrl),
     );
 
-    const msg = await interaction.editReply({ embeds: [embed], components: [row] });
+    await interaction.editReply({ embeds: [embed], components: [row] });
 
-    // Wait for button click (60s timeout)
+    // Wait for the confirm button click (60 s window)
+    let btn;
     try {
-      const btn = await msg.awaitMessageComponent({ filter: i => i.user.id === interaction.user.id && i.customId === 'botupdate_confirm', time: 60_000 });
-      await btn.update({ content: '⏳ Pulling latest code…', embeds: [], components: [] });
-      const result = await this.updateManager.performUpdate();
-      await interaction.editReply({
-        content: result.success
-          ? `✅ **Update complete!** Restart the bot to apply.\n\`\`\`\n${result.output.slice(0, 1500)}\n\`\`\``
-          : `❌ **Update failed:**\n\`\`\`\n${result.output.slice(0, 1500)}\n\`\`\``,
-        embeds: [], components: [],
+      const msg = await interaction.fetchReply();
+      btn = await msg.awaitMessageComponent({
+        filter: (i) => i.user.id === interaction.user.id && i.customId === 'botupdate_confirm',
+        time:   60_000,
       });
     } catch {
-      await interaction.editReply({ content: '⏱️ Update cancelled (timed out).', embeds: [], components: [] });
+      // Timed out — remove buttons so they can't be clicked later
+      return interaction.editReply({
+        content:    '⏱️ Update cancelled (timed out).',
+        embeds:     [],
+        components: [],
+      });
     }
+
+    // Acknowledge the button with deferUpdate so Discord doesn't show
+    // "interaction failed". We keep using the original interaction token
+    // for all further status edits — btn.update() would shift the token
+    // to btn and make interaction.editReply() fail silently.
+    await btn.deferUpdate();
+    await interaction.editReply({
+      content:    '⏳ Downloading and applying update…',
+      embeds:     [],
+      components: [],
+    });
+
+    const result = await this.updateManager.performUpdate();
+
+    await interaction.editReply({
+      content: result.success
+        ? `✅ **Update complete!** Restart the bot to apply.\n\`\`\`\n${result.output.slice(0, 1500)}\n\`\`\``
+        : `❌ **Update failed:**\n\`\`\`\n${result.output.slice(0, 1500)}\n\`\`\``,
+      embeds:     [],
+      components: [],
+    });
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -651,9 +685,14 @@ class CommandHandler {
   async _audioList(interaction) {
     const files = this.customAudio.listFiles();
     if (files.length === 0) {
-      return interaction.reply({ content: '📂 No custom audio files uploaded yet.\nUse `/audio upload` to add files.', flags: MessageFlags.Ephemeral });
+      return interaction.reply({
+        content: '📂 No custom audio files uploaded yet.\nUse `/audio upload` to add files.',
+        flags:   MessageFlags.Ephemeral,
+      });
     }
-    const lines = files.map(f => `• \`${f.filename}\` — ${f.sizeKb} KB${f.number !== null ? ` (number ${f.number})` : ''}`);
+    const lines = files.map(f =>
+      `• \`${f.filename}\` — ${f.sizeKb} KB${f.number !== null ? ` (number ${f.number})` : ''}`,
+    );
     const embed = new EmbedBuilder()
       .setTitle(`🎵 Custom Audio Files (${files.length})`)
       .setColor('#00BCD4')
@@ -674,7 +713,6 @@ class CommandHandler {
       return interaction.editReply(`❌ File too large (${Math.round(attachment.size / 1024)} KB). Max 5 MB.`);
     }
 
-    // Download the file
     const buffer = await this._downloadBuffer(attachment.url);
     const result = await this.customAudio.saveFile(attachment.name, buffer);
 
@@ -682,7 +720,6 @@ class CommandHandler {
       return interaction.editReply(`❌ ${result.error}`);
     }
 
-    // Invalidate TTS library so new file is picked up
     this.client.voiceManager.getTTSService().resetLibrary();
 
     await interaction.editReply(
@@ -706,7 +743,10 @@ class CommandHandler {
   async _audioClear(interaction) {
     const count = this.customAudio.clearAll();
     this.client.voiceManager.getTTSService().resetLibrary();
-    await interaction.reply({ content: `🗑️ Deleted **${count}** custom audio file(s).`, flags: MessageFlags.Ephemeral });
+    await interaction.reply({
+      content: `🗑️ Deleted **${count}** custom audio file(s).`,
+      flags:   MessageFlags.Ephemeral,
+    });
   }
 
   async _audioCoverage(interaction) {
@@ -715,25 +755,30 @@ class CommandHandler {
       .setTitle('📊 Custom Audio Coverage (1–60)')
       .setColor('#4CAF50')
       .addFields(
-        { name: `✅ Covered (${covered.length})`, value: covered.length ? covered.join(', ') : 'None', inline: false },
+        { name: `✅ Covered (${covered.length})`, value: covered.length ? covered.join(', ') : 'None',               inline: false },
         { name: `❌ Missing (${missing.length})`,  value: missing.length  ? missing.join(', ')  : 'None — all covered!', inline: false },
       )
       .setTimestamp();
     await interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
   }
 
-  // ── Helper: download attachment ─────────────────────────────────────────────
+  // ── Helper: download attachment buffer ──────────────────────────────────────
 
   _downloadBuffer(url) {
     return new Promise((resolve, reject) => {
-      const mod = url.startsWith('https') ? https : require('http');
-      mod.get(url, (res) => {
+      const mod = url.startsWith('https') ? https : http;
+      const req = mod.get(url, (res) => {
         if (res.statusCode !== 200) return reject(new Error(`HTTP ${res.statusCode}`));
         const chunks = [];
-        res.on('data', c => chunks.push(c));
-        res.on('end',  () => resolve(Buffer.concat(chunks)));
+        res.on('data',  c  => chunks.push(c));
+        res.on('end',   () => resolve(Buffer.concat(chunks)));
         res.on('error', reject);
-      }).on('error', reject);
+      });
+      req.setTimeout(30_000, () => {
+        req.destroy();
+        reject(new Error('Attachment download timed out'));
+      });
+      req.on('error', reject);
     });
   }
 }
