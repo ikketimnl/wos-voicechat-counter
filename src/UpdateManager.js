@@ -122,7 +122,7 @@ class UpdateManager {
 
   /** Semver compare. Returns 1 if a > b, -1 if a < b, 0 if equal. */
   _compareVersions(a, b) {
-    const parse = (v) => String(v).replace(/^v/, '').split('.').map(Number);
+    const parse = (v) => String(v).replace(/^[vV]/, '').split('.').map(Number);
     const pa = parse(a);
     const pb = parse(b);
     for (let i = 0; i < 3; i++) {
@@ -311,7 +311,7 @@ class UpdateManager {
     const current = this.getCurrentVersion();
     try {
       const release = await this._fetchJson(GITHUB_API);
-      const latest  = String(release.tag_name ?? '').replace(/^v/, '');
+      const parse = (v) => String(v).replace(/^[vV]/, '').split('.').map(Number);
 
       if (!latest) {
         return { current, latest: null, updateAvailable: false, error: 'No release tag found on GitHub.' };
