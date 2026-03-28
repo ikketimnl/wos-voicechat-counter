@@ -63,36 +63,29 @@ const PROTECTED = new Set([
 ]);
 
 /**
- * Files and directories that are platform-specific and should be skipped
- * when not running on that platform.
- *
- * Keys are the platforms to EXCLUDE the files on (i.e. if you're NOT on
- * that platform, skip these paths).
+ * Files that are only relevant to specific platforms.
+ * These are skipped on platforms that don't need them.
  */
 const PLATFORM_EXCLUDES = {
-  // Only needed on Windows hosts
   windows: {
     excludeOnOtherPlatforms: ['windowsautosetup.bat'],
   },
-  // Only needed for Docker/Pterodactyl deployments
   container: {
     excludeOnOtherPlatforms: ['Dockerfile', 'Dockerfile.yolk', 'docker-compose.yml', 'deploy.sh', '.github'],
   },
 };
 
 /**
- * Build the set of paths (relative, normalised to forward slashes) that
- * should be skipped during extraction for the current platform.
+ * Build the set of paths that should be skipped during extraction
+ * for the current platform.
  */
 function buildExcludeList(platform) {
   const excluded = [];
 
-  // Non-Windows platforms don't need Windows-specific files
   if (platform !== 'windows') {
     excluded.push(...PLATFORM_EXCLUDES.windows.excludeOnOtherPlatforms);
   }
 
-  // Non-container platforms don't need Docker/CI files
   if (platform !== 'docker' && platform !== 'pterodactyl') {
     excluded.push(...PLATFORM_EXCLUDES.container.excludeOnOtherPlatforms);
   }
@@ -120,7 +113,10 @@ class UpdateManager {
     }
   }
 
-  /** Semver compare. Returns 1 if a > b, -1 if a < b, 0 if equal. */
+  /**
+   * Semver compare. Returns 1 if a > b, -1 if a < b, 0 if equal.
+   * Strips both lowercase 'v' and uppercase 'V' prefixes from tags.
+   */
   _compareVersions(a, b) {
     const parse = (v) => String(v).replace(/^[vV]/, '').split('.').map(Number);
     const pa = parse(a);
@@ -211,35 +207,33 @@ class UpdateManager {
     fs.mkdirSync(stagingDir, { recursive: true });
 
     try {
-      // 1. Extract the full tarball into staging (safe — app dir untouched so far)
+      // 1. Extract the full tarball into staging (app dir untouched so far)
       await this._runExecFile('tar', ['-xzf', tarPath, '--strip-components=1', '-C', stagingDir], 60_000);
 
-      // 2. Walk staging dir and copy files to appDir selectively
+      // 2. Selectively copy files from staging to app dir
       this._copySelective(stagingDir, appDir, stagingDir, excludes);
 
-      // 3. Run npm ci with suppressed noise
+      // 3. Run npm ci (silent on success, errors only on failure)
       await this._runNpmCi(appDir);
 
     } finally {
-      // Always clean up staging dir
+      // Always clean up staging dir regardless of success or failure
       try { fs.rmSync(stagingDir, { recursive: true, force: true }); } catch (_) {}
     }
   }
 
   /**
-   * Recursively copy files from src to dest, skipping:
+   * Recursively copy files from srcDir to destDir, skipping:
    *  - protected paths (config.json, settings.json, custom_audio)
-   *  - platform-excluded paths
+   *  - platform-excluded paths (Docker files on Windows, bat files on Linux, etc.)
    */
   _copySelective(srcDir, destDir, stagingRoot, excludes) {
     for (const entry of fs.readdirSync(srcDir, { withFileTypes: true })) {
       const srcPath  = path.join(srcDir,  entry.name);
       const destPath = path.join(destDir, entry.name);
+      const relPath  = path.relative(stagingRoot, srcPath).replace(/\\/g, '/');
 
-      // Compute the relative path from the staging root for matching
-      const relPath = path.relative(stagingRoot, srcPath).replace(/\\/g, '/');
-
-      // Skip protected files — never overwrite user config/data
+      // Never overwrite protected user config/data
       if (PROTECTED.has(relPath) || PROTECTED.has(entry.name)) continue;
 
       // Skip platform-irrelevant files
@@ -255,27 +249,26 @@ class UpdateManager {
   }
 
   /**
-   * Run npm ci with:
-   *  - stdio stdin closed (never hangs waiting for input)
-   *  - --omit=dev (no devDependencies)
-   *  - --no-audit (skip audit network call and output)
-   *  - --no-fund (suppress funding messages)
-   *  - --loglevel=error (only print actual errors, no warnings or progress)
+   * Run npm ci with all noise suppressed.
+   * stdin is closed so it never hangs waiting for input.
+   * On failure, only actual error output is returned.
    */
   _runNpmCi(appDir) {
     return new Promise((resolve, reject) => {
-      execFile(this.npmPath, ['ci', '--omit=dev', '--no-audit', '--no-fund', '--loglevel=error'], {
-        cwd:     appDir,
-        timeout: 120_000,
-        env:     { ...process.env },
-        stdio:   ['ignore', 'pipe', 'pipe'],
-      }, (err, _stdout, stderr) => {
-        if (err) {
-          // On failure, return stderr so the caller can show it
-          return reject(new Error(stderr.trim() || err.message));
-        }
-        resolve();
-      });
+      execFile(
+        this.npmPath,
+        ['ci', '--omit=dev', '--no-audit', '--no-fund', '--loglevel=error'],
+        {
+          cwd:     appDir,
+          timeout: 120_000,
+          env:     { ...process.env },
+          stdio:   ['ignore', 'pipe', 'pipe'],
+        },
+        (err, _stdout, stderr) => {
+          if (err) return reject(new Error(stderr.trim() || err.message));
+          resolve();
+        },
+      );
     });
   }
 
@@ -302,9 +295,11 @@ class UpdateManager {
    * The latest version comes exclusively from the GitHub release tag —
    * never from a remote package.json or branch file.
    *
+   * Handles both 'v2.1.1' and 'V2.1.1' style tags correctly.
+   *
    * Resolves with:
    *   { current, latest, updateAvailable, releaseUrl, body, tarballUrl }
-   * or on network error:
+   * or on error:
    *   { current, latest: null, updateAvailable: false, error }
    */
   async checkForUpdate() {
@@ -313,9 +308,19 @@ class UpdateManager {
       const release = await this._fetchJson(GITHUB_API);
       const parse = (v) => String(v).replace(/^[vV]/, '').split('.').map(Number);
 
-      if (!latest) {
-        return { current, latest: null, updateAvailable: false, error: 'No release tag found on GitHub.' };
+      // Guard against unexpected API responses (rate limits, error objects, etc.)
+      if (!release || typeof release !== 'object' || !release.tag_name) {
+        const detail = release?.message ?? JSON.stringify(release);
+        return {
+          current,
+          latest:          null,
+          updateAvailable: false,
+          error:           `Unexpected GitHub API response: ${detail}`,
+        };
       }
+
+      // Strip both lowercase 'v' and uppercase 'V' from tag names
+      const latest = String(release.tag_name).replace(/^[vV]/, '');
 
       return {
         current,
@@ -338,10 +343,10 @@ class UpdateManager {
    *   2. Download the release tarball into temp/
    *   3. Extract into a staging directory (app dir untouched until verified)
    *   4. Selectively copy files to app dir:
-   *        - config.json is never touched
-   *        - config/settings.json is never touched
-   *        - config/custom_audio is never touched
-   *        - platform-irrelevant files are skipped
+   *        - config.json              → never touched
+   *        - config/settings.json     → never touched
+   *        - config/custom_audio      → never touched
+   *        - platform-irrelevant files → skipped
    *   5. Run npm ci (silent on success, errors only on failure)
    *
    * Returns { success: boolean, output: string }
@@ -361,7 +366,7 @@ class UpdateManager {
       // 1. Fetch release metadata
       const release    = await this._fetchJson(GITHUB_API);
       const tarballUrl = release.tarball_url;
-      const latest     = String(release.tag_name ?? '').replace(/^v/, '');
+      const latest     = String(release.tag_name ?? '').replace(/^[vV]/, '');
 
       if (!tarballUrl) {
         return { success: false, output: '❌ GitHub API returned no tarball URL.' };
