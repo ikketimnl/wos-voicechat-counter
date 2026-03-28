@@ -3,3 +3,6 @@ Create normal docker image
 Improve docker file use (slim etc)
 Implement bot version into /status command
 Ask trelos nicely to create a nicer menu style for the bot using the new menu builder style lei showed us
+Add onnix voice model change option
+Create centralized generation server
+Train new/own voice models 
