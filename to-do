@@ -1,3 +1,5 @@
-Add multi voice support
-Add option to enable/disable rally overview
-Add option to switch between count up/down
+Improve platform based updater
+Create normal docker image
+Improve docker file use (slim etc)
+Implement bot version into /status command
+Ask trelos nicely to create a nicer menu style for the bot using the new menu builder style lei showed us
