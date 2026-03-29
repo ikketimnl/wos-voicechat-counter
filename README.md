@@ -18,7 +18,7 @@ We made a github wiki for the bot with all kinds of guides (ai generated) you ca
 | 🔢 Count direction | Toggle between **Count Down** (max→1) and **Count Up** (1→max) via `/settings` |
 | 📢 Rally intro | Optional spoken intro before counting; enable/disable via `/settings` |
 | 🔊 Voice generators | Choose from **local auto-detect**, **eSpeak NG**, **Festival**, **Piper neural TTS**, or **console** (see `DOCKER.md` for Piper setup) |
-| 🎵 Custom audio | Upload your own WAV/MP3/OGG files for numbers, the intro, and the outro via `/audio upload` |
+| 🎵 Custom audio Menu | Upload and manage your own WAV/MP3/OGG files for numbers, the intro and the outro via the ineractive `/audio` menu in Discord |
 | ⚙️ Visual settings menu | Full interactive settings panel — `/settings` in Discord |
 | 🆕 In-bot updates | `/botupdate` checks GitHub Releases and can pull + reinstall automatically |
 | 💾 Persistent config | All settings survive restarts, saved in `config/settings.json` |
@@ -52,7 +52,7 @@ npm start
 ### Player Management
 | Command | Description |
 |---|---|
-| `/register <name> <seconds> [group]` | Register a player with their travel time |
+| `/register <name> <seconds> [group](optional)` | Register a player with their travel time (Default: group 1) |
 | `/update <name> <seconds> [group]` | Update a player's travel time or group |
 | `/remove <name>` | Remove a player |
 | `/clear` | Remove all players |
@@ -64,8 +64,8 @@ npm start
 |---|---|
 | `/join` | Bot joins your voice channel |
 | `/leave` | Bot leaves the voice channel |
-| `/launch [group]` | Start the synchronized countdown |
-| `/preview [group]` | Preview timing without starting |
+ `/launch [group](optional)` | Start the synchronized countdown (Default: group 1) |
+| `/preview [group](optional)` | Preview timing without starting (Default: group 1) |
 | `/stop` | Stop an active countdown |
 | `/status` | Show bot status and current settings |
 
@@ -74,11 +74,7 @@ npm start
 |---|---|
 | `/settings` | Open the interactive settings menu |
 | `/botupdate` | Check for and apply updates from GitHub |
-| `/audio list` | List uploaded custom audio files |
-| `/audio upload` | Upload a custom WAV/MP3/OGG audio file |
-| `/audio delete <filename>` | Delete a custom audio file |
-| `/audio clear` | Delete all custom audio files |
-| `/audio coverage` | Show which numbers (1–60) have custom audio |
+| `/audio` | Open the interactive audio menu |
 
 ---
 
@@ -86,12 +82,25 @@ npm start
 
 The interactive settings panel lets you change everything without restarting:
 
-- **Voice Generator** — switch between `local`, `espeak`, `festival`, `piper`, `console`
-- **Count Direction** — toggle Count Down ↓ or Count Up ↑
-- **Rally Intro** — enable or disable the opening announcement
-- **Cache Controls** — clear countdown cache or full library cache to free disk space
+- **Voice Generator** — switch between `local`, `espeak`, `festival`, `piper`, `console`.
+- **Count Direction** — toggle Count Down ↓ or Count Up ↑.
+- **Rally Intro** — enable or disable the opening announcement.
+- **Speed** - Toggle between different TTS speeds.
+- **Cache Controls** — clear countdown cache or full library cache to free disk space.
 
 All settings are saved immediately to `config/settings.json`.
+
+---
+
+## 🎛 Custom Audio Menu (`/audio`)
+
+The interactive audio panel lets you upload and manage all your custom audio files:
+
+- General info about custom audio coverage and custom audio files. 
+- **Upload** — upload your custom WAV/MP3/OGG audio file to replace a number, intro or outro.
+- **Delete** — Delete a specific custom audio file.
+- **List Files** — Shows a list with all custom audio files.
+- **Clear All** - Delete ALL the custom audio files uploaded.
 
 ---
 
@@ -100,10 +109,10 @@ All settings are saved immediately to `config/settings.json`.
 Replace the TTS voice with your own audio clips:
 
 ```
-/audio upload   ← attach a file named:
-  5.wav         → plays instead of TTS "5"
-  intro.wav     → plays as the opening announcement
-  complete.wav  → plays at the end
+Through upload in /audio menu   ← attach a file named:
+  5.wav                         → plays instead of TTS "5"
+  intro.wav                     → plays as the opening announcement
+  complete.wav                  → plays at the end
 ```
 
 **Naming rules:** Use `<number>.wav` for numbers (e.g. `1.wav` through `200.wav`), or `intro.wav` / `complete.wav` for special phrases. Supported formats: WAV, MP3, OGG, FLAC. Max 5 MB per file.
