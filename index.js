@@ -52,7 +52,7 @@ client.on('interactionCreate', async (interaction) => {
   try {
     if (interaction.isChatInputCommand()) {
       await client.commandHandler.handleCommand(interaction);
-    } else if (interaction.isButton() || interaction.isStringSelectMenu()) {
+    } else if (interaction.isButton() || interaction.isStringSelectMenu() || interaction.isModalSubmit()) {
       await client.commandHandler.handleComponentInteraction(interaction);
     }
   } catch (err) {
