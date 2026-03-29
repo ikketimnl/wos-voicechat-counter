@@ -115,7 +115,8 @@ Through upload in /audio menu   ← attach a file named:
   complete.wav                  → plays at the end
 ```
 
-**Naming rules:** Use `<number>.wav` for numbers (e.g. `1.wav` through `200.wav`), or `intro.wav` / `complete.wav` for special phrases. Supported formats: WAV, MP3, OGG, FLAC. Max 5 MB per file.
+> [!IMPORTANT]
+> **Naming rules:** Use `<number>.wav` for numbers (e.g. `1.wav` through `200.wav`), or `intro.wav` / `complete.wav` for special phrases. Supported formats: WAV, MP3, OGG, FLAC. Max 5 MB per file.
 
 Files are stored in `config/custom_audio/` (Docker volume-mounted, survives rebuilds).
 
