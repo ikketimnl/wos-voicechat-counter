@@ -1,6 +1,7 @@
 services:
   counterbot-vc:
-    build: .
+    build:
+      context: .
     container_name: counterbot-vc
     restart: unless-stopped
 
@@ -11,11 +12,6 @@ services:
 
     environment:
       - NODE_ENV=production
-      # Set the default TTS provider here, or change it via /settings in Discord.
-      # Options: local | espeak | festival | piper | console
-      - TTS_PROVIDER=local
-      # Uncomment to specify a custom Piper model path (if Piper is enabled in Dockerfile):
-      - PIPER_MODEL=/opt/piper/voices/en_US-lessac-medium.onnx
 
     volumes:
       # config/ holds config.json, settings.json, and custom_audio/
@@ -24,9 +20,12 @@ services:
       # temp/ holds the generated number library and countdown cache.
       # Mounting it avoids regenerating ~200 WAV files on every restart.
       - ./temp:/app/temp
+      # app code install within a local volume to persist between restarts, but not persistent data that might be migrated
+      # Eventually this should be pulled on bot start and replaced if new (assuming it doesn't need new pre-requisites)
+      - counterbot_vc:/app/src
 
     healthcheck:
-      test: ["CMD", "node", "-e", "require('./src/BotSettings')"]
+      test: ["CMD", "node", "-e", "require('./src/svc/BotSettings')"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -38,3 +37,6 @@ services:
           memory: 768M
         reservations:
           memory: 256M
+
+volumes:
+  counterbot_vc:

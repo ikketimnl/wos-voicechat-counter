@@ -152,6 +152,10 @@ class VoiceManager {
 
     const audioResource = await this.ttsService.generateSynchronizedCountdown(players, totalDuration);
 
+    if (this?.settings?.ttsProvider == 'console') { // Only attempt to play audio if the output handler is something other than the console, exit gracefully after triggering otherwise
+      return null;
+    } 
+
     if (!audioResource) {
       throw new Error('Failed to generate countdown audio (check TTS provider).');
     }

@@ -1,7 +1,7 @@
+config/config.json
 temp/library/*.wav
 .DS_Store
 *.md
 .github/*
-Dockerfile.yolk
 to-do
-windowsautosetup.bat
+

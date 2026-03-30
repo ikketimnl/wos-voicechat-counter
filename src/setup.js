@@ -15,10 +15,10 @@ console.log('==========================================\n');
 
 async function setup() {
   try {
-    const configDir  = path.join(process.cwd(), 'config');
+    const configDir  = path.join(process.cwd(), '../config');
     const configPath = path.join(configDir, 'config.json');
     // Legacy: also check root config.json
-    const legacyPath = path.join(process.cwd(), 'config.json');
+    const legacyPath = path.join(process.cwd(), '../config.json');
 
     if (!fs.existsSync(configDir)) fs.mkdirSync(configDir, { recursive: true });
     fs.mkdirSync(path.join(configDir, 'custom_audio'), { recursive: true });
@@ -54,6 +54,7 @@ async function setup() {
     const ttsChoice = await ask('\nChoose provider (1–5, default 1): ');
     const providers = { '1': 'local', '2': 'espeak', '3': 'festival', '4': 'piper', '5': 'console' };
     const ttsProvider = providers[ttsChoice] ?? 'local';
+    const piperModel = '/usr/local/bin/voices/en_US-lessac-medium.onnx';
 
     console.log('\n🔢 Count Direction');
     console.log('───────────────────');
@@ -69,25 +70,9 @@ async function setup() {
 
     // Write settings.json
     const settingsPath = path.join(configDir, 'settings.json');
-    const settings = { ttsProvider, countDirection, introEnabled, voiceRate: 170, version: null };
+    const settings = { ttsProvider, piperModel, countDirection, introEnabled, voiceRate: 170, version: null };
     fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
     console.log('\n✅ settings.json saved!');
-
-    // .env file
-    const envContent = [
-      '# Discord Bot Configuration',
-      `DISCORD_TOKEN=${token}`,
-      `DISCORD_CLIENT_ID=${clientId}`,
-      `DISCORD_GUILD_ID=${guildId}`,
-      '',
-      '# TTS Service Configuration',
-      `TTS_PROVIDER=${ttsProvider}`,
-      '',
-      '# Piper model path (only needed if TTS_PROVIDER=piper)',
-      '# PIPER_MODEL=/opt/piper/voices/en_US-lessac-medium.onnx',
-    ].join('\n');
-    fs.writeFileSync(path.join(process.cwd(), '.env'), envContent);
-    console.log('✅ .env saved!');
 
     // Dependencies
     const installDeps = await ask('\n📦 Install dependencies now? (Y/n): ');
