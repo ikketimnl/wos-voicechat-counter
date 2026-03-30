@@ -1,7 +1,5 @@
 config/config.json
 temp/library/*.wav
 .DS_Store
-*.md
 .github/*
-to-do
 
