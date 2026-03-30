@@ -97,7 +97,7 @@ function buildExcludeList(platform) {
 
 class UpdateManager {
   constructor() {
-    this.pkgPath  = path.join(__dirname, '../package.json');
+    this.pkgPath  = path.join(__dirname, '../../package.json');
     this.platform = detectPlatform();
     this.npmPath  = findNpm();
     console.log(`[UpdateManager] platform=${this.platform}  npm=${this.npmPath}`);
@@ -352,7 +352,7 @@ class UpdateManager {
    * Returns { success: boolean, output: string }
    */
   async performUpdate() {
-    const appDir  = path.join(__dirname, '..');
+    const appDir  = path.join(__dirname, '../..');
     const tmpDir  = path.join(appDir, 'temp');
     const tarPath = path.join(tmpDir, '_update.tar.gz');
 

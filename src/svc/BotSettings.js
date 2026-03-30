@@ -10,7 +10,7 @@ const path = require('path');
  */
 class BotSettings {
   constructor() {
-    this.settingsPath = path.join(__dirname, '../config/settings.json');
+    this.settingsPath = path.join(__dirname, '../../config/settings.json');
     this._ensureDir();
     this._settings = this._load();
   }

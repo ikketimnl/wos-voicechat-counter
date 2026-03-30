@@ -1,0 +1,29 @@
+Improve platform based updater
+    - This one is going to be difficult especially inside docker images: theoretically we might be able to map the *entire* app folder (including node_modules), but container build would still be an issue regardless. I'm not sure how many people are running docker configs vs local, but espeak should be able to run on almost anything.
+Create normal docker image
+    - Multi-arch I haven't worked on
+Improve docker file use (slim etc)
+    - Included here: slim builder, then copy binary packages to final image. After major revisions are done, it should be flattened to consolidate layers as much as possible (one apt-get install command, for instance). I separated while testing dependencies in isolation to make sure I knew what was in-scope for each TTS provider
+Implement bot version into /status command
+Ask trelos nicely to create a nicer menu style for the bot using the new menu builder style lei showed us
+Add onnix voice model change option
+    -> Change storage location to a persistent volume and offer link parsing from the repo maybe? I've changed model location definition to settings.json and it can be levereaged the same way you are modifying other settings now, but the upload limit would be a problem, so it'd have to be done via curl or wget (I don't have wget installed in the container currently because ... not needed right now, but it could easily be re-added to the final image)
+Should start pre-generation of count files when changing the model, rather than waiting for the first `/launch` call. ... rally countdown starts running 5 minutes after everyone's landed if you change it on-the-fly and forgot to regenerate beforehand. Maybe store them in a subfolder for each model so switching models doesn't kill previously generated samples, calling initialiazeNumberLibrary() wouldn't be hard in itself, but the current behavior of purging the folder might be bad if someone accidentally switches when they don't have time to regenerate samples.
+Could have a cleanup run periodically to remove "1 month old" intro files
+Consider reconfiguring the piper model to run as an http service instead of cli call: pro to this is that it keeps the model loaded persistently instead of reloading it each call (better performance), but that also has a significant impact on memory usage with multiple instances.
+
+Create centralized generation server
+Train new/own voice models 
+add version footer
+
+
+Add multi voice support - done V2
+Add option to enable/disable rally overview - done V2
+Add option to switch between count up/down - done V2
+Ad option slower settings for intro speech - planned V2.1
+
+DONE: Fix "Console Only" output throwing an error by still trying to generate voice embed
+DONE: Separate Build steps & dependencies for different models to streamline building
+DONE: Trim unneeded system libraries (ffmpeg is packaged with node dependencies, cuts 490MB from the image by not installing with apt-get, libsodium is also in node, libasound2 is not needed with no audio hardware)
+DONE: Festival was killing itself with 4 concurrent generations in 768MB of RAM, limited to 1 and it flies instead of churning hudndreds of GB of SSD
+DONE: Cleaned env files: there's no reason for having the same information for the docker config in both config.json and .env, same for piper model path and ttsProvider
