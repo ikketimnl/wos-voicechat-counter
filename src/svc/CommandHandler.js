@@ -109,7 +109,7 @@ class CommandHandler {
 
   async registerCommands() {
     const { REST, Routes } = require('discord.js');
-    const config = require(path.join(__dirname, '../config.json'));
+    const config = require(path.join(__dirname, '../../config.json'));
     const rest   = new REST({ version: '10' }).setToken(config.token);
 
     console.log('🔄 Registering slash commands…');

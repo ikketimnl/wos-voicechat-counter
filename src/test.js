@@ -5,10 +5,10 @@
  * Run with: node test.js
  */
 
-const { PlayerManager }      = require('./src/PlayerManager');
-const { BotSettings }        = require('./src/BotSettings');
-const { CustomAudioManager } = require('./src/CustomAudioManager');
-const { UpdateManager }      = require('./src/UpdateManager');
+const { PlayerManager }      = require('./svc/PlayerManager');
+const { BotSettings }        = require('./svc/BotSettings');
+const { CustomAudioManager } = require('./svc/CustomAudioManager');
+const { UpdateManager }      = require('./svc/UpdateManager');
 
 console.log('🧪 WoS VoiceChat Counter — Core Tests');
 console.log('======================================\n');
@@ -19,17 +19,17 @@ async function runTests() {
 
   function assert(condition, label) {
     if (condition) {
-      console.log(`  ✅ ${label}`);
+      console.log(`  ✅   ${label}`);
       passed++;
     } else {
-      console.error(`  ❌ FAILED: ${label}`);
+      console.error(`  ❌   FAILED: ${label}`);
       failed++;
     }
   }
 
   function assertThrows(fn, label) {
-    try { fn(); console.error(`  ❌ FAILED (no throw): ${label}`); failed++; }
-    catch { console.log(`  ✅ ${label}`); passed++; }
+    try { fn(); console.error(`  ❌   FAILED (no throw): ${label}`); failed++; }
+    catch { console.log(`  ✅   ${label}`); passed++; }
   }
 
   // ── PlayerManager ──────────────────────────────────────────────────────────
@@ -100,8 +100,7 @@ async function runTests() {
   // ── UpdateManager ──────────────────────────────────────────────────────────
   console.log('\n3. UpdateManager');
   const um = new UpdateManager();
-
-  assert(um.getCurrentVersion() === '2.0.0', 'reads version from package.json');
+  assert(um.getCurrentVersion() === '2.1.1', 'reads version from package.json: Returned ' + um.getCurrentVersion());
   assert(um._compareVersions('2.0.0', '1.9.9')  ===  1, '2.0.0 > 1.9.9');
   assert(um._compareVersions('1.0.0', '1.0.0')  ===  0, '1.0.0 == 1.0.0');
   assert(um._compareVersions('1.0.0', '2.0.0')  === -1, '1.0.0 < 2.0.0');

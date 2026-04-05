@@ -1,8 +1,10 @@
 {
-  "ttsProvider": "local",
-  "countDirection": "down",
+  "ttsProvider": "piper",
+  "countDirection": "up",
   "introEnabled": true,
+  "introSpeed": "normal",
   "customAudioDir": null,
   "voiceRate": 170,
-  "version": null
+  "version": null,
+  "piperModel": "/usr/local/bin/voices/en_US-lessac-medium.onnx"
 }

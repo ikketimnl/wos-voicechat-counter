@@ -5,9 +5,11 @@ const path = require('path');
 const fs   = require('fs');
 
 // ── Config loading ─────────────────────────────────────────────────────────
-const configPath = path.join(__dirname, 'config.json');
+const configPath = path.join(__dirname, '../config/config.json');
 if (!fs.existsSync(configPath)) {
   console.error('❌ config.json not found. Run: node setup.js');
+  console.error(__dirname);
+  console.error(configPath);
   process.exit(1);
 }
 const config = require(configPath);
@@ -17,11 +19,11 @@ if (!config.token || !config.clientId || !config.guildId) {
 }
 
 // ── Service imports ────────────────────────────────────────────────────────
-const { PlayerManager }      = require('./src/PlayerManager');
-const { BotSettings }        = require('./src/BotSettings');
-const { CustomAudioManager } = require('./src/CustomAudioManager');
-const { VoiceManager }       = require('./src/VoiceManager');
-const { CommandHandler }     = require('./src/CommandHandler');
+const { PlayerManager }      = require('./svc/PlayerManager');
+const { BotSettings }        = require('./svc/BotSettings');
+const { CustomAudioManager } = require('./svc/CustomAudioManager');
+const { VoiceManager }       = require('./svc/VoiceManager');
+const { CommandHandler }     = require('./svc/CommandHandler');
 
 // ── Initialise services ────────────────────────────────────────────────────
 const settings    = new BotSettings();
