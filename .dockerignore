@@ -1,0 +1,15 @@
+# Ignore deployment utilities and docs
+deployers/
+docs/
+
+# Ignore temporary files and runtime-only configuration
+temp/
+config/
+
+# Ignore code management and docker configuration
+.git
+.github
+.gitignore
+docker-compose.yml
+Dockerfile
+Dockerfile.yolk

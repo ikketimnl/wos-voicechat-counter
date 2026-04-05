@@ -21,7 +21,7 @@ class TTSService {
   get provider() { return this.settings.ttsProvider; }
 
   get tempDir() {
-    const d = path.join(__dirname, '../temp');
+    const d = path.join(__dirname, '../../temp');
     if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true });
     return d;
   }
@@ -34,7 +34,7 @@ class TTSService {
 
   _cleanTempDir() {
     try {
-      const d = path.join(__dirname, '../temp');
+      const d = path.join(__dirname, '../../temp');
       if (!fs.existsSync(d)) return;
       for (const f of fs.readdirSync(d)) {
         if (/^(intro_|final_|sync_countdown_|seg_|raw_|list_)/.test(f)) {
@@ -138,7 +138,7 @@ class TTSService {
   _festivalTTS(text, outputFile) {
     // festival --tts does not support --output; use text2wave instead which
     // is the standard Festival utility for writing WAV output to a file.
-    const safe = text.replace(/'/g, "'\''");
+    const safe = text.replace(/'/g, "'\''").replaceAll("_", ""); // Extra handling for underscores that festival will read out loud.
     return new Promise((resolve, reject) => {
       exec(`echo '${safe}' | text2wave -o "${outputFile}"`, (err) => {
         if (err) return reject(new Error(`Festival failed: ${err.message}`));
@@ -150,9 +150,9 @@ class TTSService {
 
   _piperTTS(text, outputFile) {
     const safe = text.replace(/"/g, '\\"');
-    const modelPath = process.env.PIPER_MODEL || '/opt/piper/voices/en_US-lessac-medium.onnx';
+    const modelPath = this.settings.piperModel || '/usr/local/bin/voices/en_US-lessac-medium.onnx';
     return new Promise((resolve, reject) => {
-      exec(`echo "${safe}" | piper --model "${modelPath}" --output_file "${outputFile}"`, (err) => {
+      exec(`echo "${safe}" | piper --model "${modelPath}" --sentence_silence 0.5 --output_file "${outputFile}"`, (err) => {
         if (err) return reject(new Error(`Piper TTS failed: ${err.message}`));
         if (!fs.existsSync(outputFile)) return reject(new Error('Piper produced no output'));
         resolve();
@@ -221,9 +221,9 @@ class TTSService {
       // Piper loads a ~350 MB ONNX model per process — limit to 1 concurrent
       // on memory-constrained containers. Other providers are lightweight and
       // can safely run at higher concurrency.
-      const isPiper = this.provider === 'piper';
-      const CONCURRENCY = isPiper ? 1 : 4;
-      if (isPiper) {
+      const isSlow = this.provider === 'piper' || this.provider === 'festival';
+      const CONCURRENCY = isSlow ? 1 : 4;
+      if (isSlow) {
         console.log('⚠️  Piper uses ~350 MB RAM per process. Building library sequentially to avoid OOM.');
         console.log(`⚠️  This will take ~${toGenerate.length * 2}–${toGenerate.length * 4}s. Library is cached after first build.`);
       }
@@ -278,16 +278,17 @@ class TTSService {
   }
 
   async generateSynchronizedCountdown(players, totalDuration) {
+
+    if (this.provider === 'console') { // Moving to avoid errors with uninitialized number library when the provider is ... not generating audio files
+      console.log(`🔊 [console] countdown: ${players.length} players, ${totalDuration}s`);
+      return null;
+    }
+
     await this.initializeNumberLibrary();
 
     const cacheKey   = this._buildCacheKey(players);
     const cachedPath = this.audioCache.get(cacheKey);
     if (cachedPath && fs.existsSync(cachedPath)) return createAudioResource(cachedPath);
-
-    if (this.provider === 'console') {
-      console.log(`🔊 [console] countdown: ${players.length} players, ${totalDuration}s`);
-      return null;
-    }
 
     const ts    = Date.now();
     const parts = [];
@@ -301,13 +302,13 @@ class TTSService {
         parts.push(normIntro);
       } else {
         const first = players.find(p => p.attackStartTime === 0) ?? players[0];
-        let script = `Synchronized attack sequence. ${first.name} starts first. `;
+        let script = `Synchronized attack sequence. ___  ${first.name} starts first. ___  `;
         players.forEach(p => {
           script += p.attackStartTime === 0
-            ? `${p.name} starts immediately. `
-            : `${p.name} starts at second ${p.attackStartTime}. `;
+            ? `${p.name} starts immediately after the countdown. ___  `
+            : `${p.name} starts at second ${p.attackStartTime}. ___  `;
         });
-        script += `${first.name} ready. Three. Two. One. Go. `;
+        script += `${first.name}, get ready. ___ Three. Two. One. Go, ___ .  ___  `;
         const introRaw  = path.join(this.tempDir, `intro_raw_${ts}.wav`);
         const introNorm = path.join(this.tempDir, `intro_${ts}.wav`);
         await this._ttsToWavIntro(script, introRaw);

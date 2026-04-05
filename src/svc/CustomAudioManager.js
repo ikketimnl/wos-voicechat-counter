@@ -3,7 +3,7 @@
 const fs   = require('fs');
 const path = require('path');
 
-const CUSTOM_AUDIO_DIR = path.join(__dirname, '../config/custom_audio');
+const CUSTOM_AUDIO_DIR = path.join(__dirname, '../../config/custom_audio');
 const ALLOWED_EXT      = new Set(['.wav', '.mp3', '.ogg', '.flac', '.aac', '.m4a']);
 const MAX_FILE_SIZE    = 5 * 1024 * 1024; // 5 MB per file
 

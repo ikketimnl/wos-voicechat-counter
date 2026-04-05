@@ -1,67 +1,92 @@
 # WoS VoiceChat Counter — main Dockerfile (for standalone Docker deployments)
-FROM ubuntu:22.04
+FROM nikolaik/python-nodejs:python3.14-nodejs22-slim AS builder
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV TZ=UTC
 
+#       ffmpeg  espeak espeak-ng espeak-ng-data festival festvox-kallpc16k libasound2 libsodium-dev all unnecessary in build phase
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        curl \
         wget \
-        git \
+        dumb-init \
         build-essential \
-        python3 \
         python3-pip \
-        ffmpeg \
-        espeak \
-        espeak-ng \
-        espeak-ng-data \
-        festival \
-        festvox-kallpc16k \
-        libasound2-dev \
-        libsodium-dev \
-        ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
+        pipx \
+        ca-certificates
 
-# Node.js 22 LTS
-RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
-    && apt-get install -y nodejs \
-    && rm -rf /var/lib/apt/lists/*
+RUN pip install piper-tts pathvalidate --break-system-packages
 
-# Optional: Piper Neural TTS
-# comment to remove Piper (~350 MB). Then unset TTS_PROVIDER=piper in
-# docker-compose.yml or use /settings in Discord.
-#
-RUN mkdir -p /opt/piper/voices \
-     && wget -q -O /tmp/piper.tar.gz \
-        https://github.com/rhasspy/piper/releases/download/2023.11.14-2/piper_linux_x86_64.tar.gz \
-     && tar -xzf /tmp/piper.tar.gz -C /opt/piper --strip-components=1 \
-     && rm /tmp/piper.tar.gz \
-     && chmod +x /opt/piper/piper \
-     && ln -s /opt/piper/piper /usr/local/bin/piper
+RUN pip wheel --no-clean --wheel-dir=/tmp/wheelhouse piper-tts pathvalidate
 
- RUN wget -q -O /opt/piper/voices/en_US-lessac-medium.onnx \
+RUN mkdir -p /usr/local/bin/voices
+
+RUN wget -q -O /usr/local/bin/voices/en_US-lessac-medium.onnx \
         https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx \
-     && wget -q -O /opt/piper/voices/en_US-lessac-medium.onnx.json \
+     && wget -q -O /usr/local/bin/voices/en_US-lessac-medium.onnx.json \
         https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx.json
-
- ENV PIPER_MODEL=/opt/piper/voices/en_US-lessac-medium.onnx
 
 WORKDIR /app
 
-COPY package*.json ./
+COPY --chown=pn:pn ./package*.json .
 RUN npm ci --omit=dev
 
-COPY . .
+FROM nikolaik/python-nodejs:python3.14-nodejs22-slim
+
+ENV NODE_ENV=production
+ENV DEBIAN_FRONTEND=noninteractive
+ENV TZ=UTC
+
+COPY --from=builder /usr/bin/dumb-init /usr/bin/dumb-init
+COPY --from=builder /tmp/wheelhouse /tmp/wheelhouse
+
+RUN pip install --root-user-action ignore --no-index --find-links=/tmp/wheelhouse piper-tts pathvalidate
+
+COPY --chown=pn:pn --from=builder /usr/local/bin/voices/en_US-lessac-medium.onnx /usr/local/bin/voices/en_US-lessac-medium.onnx
+COPY --chown=pn:pn --from=builder /usr/local/bin/voices/en_US-lessac-medium.onnx.json /usr/local/bin/voices/en_US-lessac-medium.onnx.json
+
+COPY --chown=pn:pn --from=builder /app/package*.json /app/
+COPY --chown=pn:pn --from=builder /app/node_modules /app/node_modules
+
+RUN apt-get update
+
+RUN apt-get install -y --no-install-recommends \
+         ca-certificates
+
+# FFMPEG Segment (490MB) - Is speed scaling really worth it? - waiiit.... it's installed via node dependency!!! This is completely superfluous?
+#RUN apt-get install -y --no-install-recommends \
+#         ffmpeg
+
+# ESPEAK SEGMENT (70MB)
+RUN apt-get install -y --no-install-recommends \
+         espeak \
+         espeak-ng \
+         espeak-ng-data
+
+# FESTIVAL SEGMENT (60MB) - This one is poor quality, and thrashes the disk on a memory-constrained system - Treating it like Piper and it works well enough (and faster)
+RUN apt-get install -y --no-install-recommends \
+        festival \
+        festvox-kallpc16k
+
+# LIBS OMITTED:
+#  - libasound2 is not needed in docker environment, docker is not interfacing with audio hardware
+#  - libsodium is packaged with the node dependencies
+#RUN apt-get install -y --no-install-recommends \
+#        libasound2 \
+#        libsodium-dev
+
+WORKDIR /app
+
+COPY --chown=pn:pn ./src/ ./src
+
+RUN chown -R pn:pn /app
+
+USER pn
 
 RUN mkdir -p temp/library config/custom_audio
-
-RUN useradd -m -u 1000 botuser \
-    && chown -R botuser:botuser /app
-USER botuser
 
 EXPOSE 3000
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
-    CMD node -e "require('./src/BotSettings')" || exit 1
+    CMD node -e "require('./src/svc/BotSettings')" || exit 1
 
-CMD ["node", "index.js"]
+ENTRYPOINT ["/usr/bin/dumb-init", "--"]
+CMD [ "node", "src/index.js"]
