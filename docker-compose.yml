@@ -14,15 +14,17 @@ services:
       - NODE_ENV=production
 
     volumes:
-      # config/ holds config.json, settings.json, and custom_audio/
-      # Mount this so all settings + custom audio survive container rebuilds.
+      # config/ holds config.json, settings.json, players.json and custom_audio/.
+      # Mount this so all user data survives container rebuilds.
       - ./config:/app/config
       # temp/ holds the generated number library and countdown cache.
       # Mounting it avoids regenerating ~200 WAV files on every restart.
       - ./temp:/app/temp
-      # app code install within a local volume to persist between restarts, but not persistent data that might be migrated
-      # Eventually this should be pulled on bot start and replaced if new (assuming it doesn't need new pre-requisites)
-      - counterbot_vc:/app/src
+      # NOTE: /app/src is intentionally NOT mounted as a named volume.
+      # Doing so would shadow the code baked into the image and cause
+      # `docker compose up -d --build` to silently run stale code from the
+      # old volume instead of the freshly-built image. Code updates come
+      # from rebuilding the image, not from a volume mount.
 
     healthcheck:
       test: ["CMD", "node", "-e", "require('./src/svc/BotSettings')"]
@@ -38,5 +40,3 @@ services:
         reservations:
           memory: 256M
 
-volumes:
-  counterbot_vc:

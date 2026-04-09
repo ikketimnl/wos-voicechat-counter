@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node index.js",
     "dev": "nodemon index.js",
-    "setup": "node setup.js"
+    "setup": "node src/setup.js",
+    "test": "node src/test.js"
   },
   "dependencies": {
     "@discordjs/opus": "^0.10.0",

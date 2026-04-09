@@ -1,148 +1,155 @@
 'use strict';
 
+const fs   = require('fs');
+const path = require('path');
+
+const PLAYERS_FILE = path.join(__dirname, '../../config/players.json');
+
 class PlayerManager {
   constructor() {
     this.players = new Map();
+    this._ensureDir();
+    this._load();
   }
 
-  // Register a new player with their time to destination and attack group
+  // ── Persistence ────────────────────────────────────────────────────────────
+
+  _ensureDir() {
+    const dir = path.dirname(PLAYERS_FILE);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  }
+
+  _load() {
+    try {
+      if (fs.existsSync(PLAYERS_FILE)) {
+        const raw = fs.readFileSync(PLAYERS_FILE, 'utf8');
+        const list = JSON.parse(raw);
+        if (Array.isArray(list)) {
+          for (const p of list) {
+            if (p && typeof p.name === 'string') {
+              this.players.set(p.name, p);
+            }
+          }
+          console.log(`✅ Loaded ${this.players.size} player(s) from disk.`);
+        }
+      }
+    } catch (err) {
+      console.warn(`⚠️  Could not load players.json (${err.message}), starting empty.`);
+    }
+  }
+
+  _save() {
+    try {
+      fs.writeFileSync(
+        PLAYERS_FILE,
+        JSON.stringify(Array.from(this.players.values()), null, 2),
+        'utf8',
+      );
+    } catch (err) {
+      console.error(`❌ Failed to save players.json: ${err.message}`);
+    }
+  }
+
+  // ── Write methods ──────────────────────────────────────────────────────────
+
   registerPlayer(playerName, timeToDestination, attackGroup = 1) {
-    if (timeToDestination <= 0) {
-      throw new Error('Time to destination must be greater than 0');
-    }
-    
-    if (attackGroup <= 0) {
-      throw new Error('Attack group must be greater than 0');
-    }
-    
+    if (timeToDestination <= 0) throw new Error('Time to destination must be greater than 0');
+    if (attackGroup <= 0)       throw new Error('Attack group must be greater than 0');
+
     this.players.set(playerName, {
       name: playerName,
-      timeToDestination: timeToDestination,
-      attackGroup: attackGroup,
-      registeredAt: Date.now()
+      timeToDestination,
+      attackGroup,
+      registeredAt: Date.now(),
     });
-    
+    this._save();
     return this.players.get(playerName);
   }
 
-  // Update a player's time to destination and/or attack group
   updatePlayer(playerName, newTimeToDestination, newAttackGroup = null) {
-    if (!this.players.has(playerName)) {
-      throw new Error(`Player ${playerName} not found`);
-    }
-    
-    if (newTimeToDestination <= 0) {
-      throw new Error('Time to destination must be greater than 0');
-    }
-    
-    if (newAttackGroup !== null && newAttackGroup <= 0) {
+    if (!this.players.has(playerName)) throw new Error(`Player ${playerName} not found`);
+    if (newTimeToDestination <= 0)     throw new Error('Time to destination must be greater than 0');
+    if (newAttackGroup !== null && newAttackGroup <= 0)
       throw new Error('Attack group must be greater than 0');
-    }
-    
+
     const player = this.players.get(playerName);
     player.timeToDestination = newTimeToDestination;
-    if (newAttackGroup !== null) {
-      player.attackGroup = newAttackGroup;
-    }
+    if (newAttackGroup !== null) player.attackGroup = newAttackGroup;
     player.updatedAt = Date.now();
-    
+    this._save();
     return player;
   }
 
-  // Remove a specific player
   removePlayer(playerName) {
-    if (!this.players.has(playerName)) {
-      throw new Error(`Player ${playerName} not found`);
-    }
-    
-    return this.players.delete(playerName);
+    if (!this.players.has(playerName)) throw new Error(`Player ${playerName} not found`);
+    const ok = this.players.delete(playerName);
+    this._save();
+    return ok;
   }
 
-  // Remove all players
+  /** Remove all players and persist. Returns count removed. */
   clearAllPlayers() {
     const count = this.players.size;
     this.players.clear();
+    this._save();
     return count;
   }
 
-  // Get all registered players
-  getAllPlayers() {
-    return Array.from(this.players.values());
+  /** Alias for clearAllPlayers — used by the /wipe command. */
+  wipeAllPlayers() {
+    return this.clearAllPlayers();
   }
 
-  // Get a specific player
-  getPlayer(playerName) {
-    return this.players.get(playerName);
-  }
+  // ── Read-only helpers ──────────────────────────────────────────────────────
 
-  // Check if a player exists
-  hasPlayer(playerName) {
-    return this.players.has(playerName);
-  }
+  getAllPlayers()       { return Array.from(this.players.values()); }
+  getPlayer(name)       { return this.players.get(name); }
+  hasPlayer(name)       { return this.players.has(name); }
+  getPlayerCount()      { return this.players.size; }
 
-  // Get the number of registered players
-  getPlayerCount() {
-    return this.players.size;
-  }
-
-  // Get players by attack group
   getPlayersByGroup(attackGroup) {
-    return this.getAllPlayers().filter(player => player.attackGroup === attackGroup);
+    return this.getAllPlayers().filter(p => p.attackGroup === attackGroup);
   }
 
-  // Get all unique attack groups
   getAttackGroups() {
-    const groups = new Set(this.getAllPlayers().map(player => player.attackGroup));
+    const groups = new Set(this.getAllPlayers().map(p => p.attackGroup));
     return Array.from(groups).sort((a, b) => a - b);
   }
 
-  // Get player count by group
   getPlayerCountByGroup(attackGroup) {
     return this.getPlayersByGroup(attackGroup).length;
   }
 
-  // Calculate attack timing for all players or specific group
   calculateAttackTiming(attackGroup = null) {
-    if (this.players.size === 0) {
-      throw new Error('No players registered');
-    }
+    if (this.players.size === 0) throw new Error('No players registered');
 
-    // Get players to calculate timing for
     let players;
     if (attackGroup !== null) {
       players = this.getPlayersByGroup(attackGroup);
-      if (players.length === 0) {
+      if (players.length === 0)
         throw new Error(`No players found in attack group ${attackGroup}`);
-      }
     } else {
       players = this.getAllPlayers();
     }
 
     const maxTime = Math.max(...players.map(p => p.timeToDestination));
-    
-    // Calculate when each player should start their attack
-    // so they all arrive at the same time
+
     const attackTiming = players.map(player => ({
       ...player,
       attackStartTime: maxTime - player.timeToDestination,
-      attackOrder: 0 // Will be set by VoiceManager
+      attackOrder:     0,
     }));
 
-    // Sort by attack start time (earliest first)
     attackTiming.sort((a, b) => a.attackStartTime - b.attackStartTime);
-    
-    // Assign attack order
-    attackTiming.forEach((player, index) => {
-      player.attackOrder = index + 1;
-    });
+    attackTiming.forEach((p, i) => { p.attackOrder = i + 1; });
 
     return {
-      players: attackTiming,
+      players:       attackTiming,
       totalDuration: maxTime,
-      launchTime: Date.now(),
-      attackGroup: attackGroup
+      launchTime:    Date.now(),
+      attackGroup,
     };
   }
 }
 
-module.exports = { PlayerManager }; 
+module.exports = { PlayerManager };

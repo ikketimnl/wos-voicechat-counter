@@ -5,23 +5,23 @@ const path = require('path');
 const fs   = require('fs');
 
 // ── Config loading ─────────────────────────────────────────────────────────
-const configPath = path.join(__dirname, 'config.json');
+const configPath = path.join(__dirname, 'config', 'config.json');
 if (!fs.existsSync(configPath)) {
-  console.error('❌ config.json not found. Run: node setup.js');
+  console.error('❌ config/config.json not found. Run: node src/setup.js');
   process.exit(1);
 }
 const config = require(configPath);
 if (!config.token || !config.clientId || !config.guildId) {
-  console.error('❌ config.json is incomplete. Run: node setup.js');
+  console.error('❌ config/config.json is incomplete. Run: node src/setup.js');
   process.exit(1);
 }
 
 // ── Service imports ────────────────────────────────────────────────────────
-const { PlayerManager }      = require('./src/PlayerManager');
-const { BotSettings }        = require('./src/BotSettings');
-const { CustomAudioManager } = require('./src/CustomAudioManager');
-const { VoiceManager }       = require('./src/VoiceManager');
-const { CommandHandler }     = require('./src/CommandHandler');
+const { PlayerManager }      = require('./src/svc/PlayerManager');
+const { BotSettings }        = require('./src/svc/BotSettings');
+const { CustomAudioManager } = require('./src/svc/CustomAudioManager');
+const { VoiceManager }       = require('./src/svc/VoiceManager');
+const { CommandHandler }     = require('./src/svc/CommandHandler');
 
 // ── Initialise services ────────────────────────────────────────────────────
 const settings    = new BotSettings();
@@ -36,7 +36,6 @@ const client = new Client({
   ],
 });
 
-// Attach managers to client so they share a single instance
 client.playerManager  = new PlayerManager();
 client.voiceManager   = new VoiceManager(client, settings, customAudio);
 client.commandHandler = new CommandHandler(client, settings, customAudio);

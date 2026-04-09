@@ -1,10 +1,27 @@
 #!/usr/bin/env node
 'use strict';
 
-const fs       = require('fs');
-const path     = require('path');
-const readline = require('readline');
-const { execSync } = require('child_process');
+const fs                    = require('fs');
+const path                  = require('path');
+const readline              = require('readline');
+const { execFileSync }      = require('child_process');
+
+// Resolve npm the same way UpdateManager does — works in stripped-PATH
+// environments like Pterodactyl and Docker without relying on a shell.
+function findNpm() {
+  if (process.platform === 'win32') {
+    const sibling = path.join(path.dirname(process.execPath), 'npm.cmd');
+    return fs.existsSync(sibling) ? sibling : 'npm.cmd';
+  }
+  const candidates = [
+    path.join(path.dirname(process.execPath), 'npm'),
+    '/usr/local/bin/npm',
+    '/usr/bin/npm',
+    '/opt/nodejs/bin/npm',
+  ];
+  for (const c of candidates) if (fs.existsSync(c)) return c;
+  return 'npm';
+}
 
 const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
 const ask = (q) => new Promise(resolve => rl.question(q, resolve));
@@ -15,16 +32,16 @@ console.log('==========================================\n');
 
 async function setup() {
   try {
-    const configDir  = path.join(process.cwd(), '../config');
+    // Anchor config dir to this file's location, not process.cwd().
+    // Using process.cwd() with '../config' breaks when setup.js is run from
+    // the project root (cwd=root → '../config' = parent of project root).
+    const configDir  = path.join(__dirname, '../config');
     const configPath = path.join(configDir, 'config.json');
-    // Legacy: also check root config.json
-    const legacyPath = path.join(process.cwd(), '../config.json');
 
     if (!fs.existsSync(configDir)) fs.mkdirSync(configDir, { recursive: true });
     fs.mkdirSync(path.join(configDir, 'custom_audio'), { recursive: true });
 
-    const existingPath = fs.existsSync(configPath) ? configPath : (fs.existsSync(legacyPath) ? legacyPath : null);
-    if (existingPath) {
+    if (fs.existsSync(configPath)) {
       const overwrite = await ask('config.json already exists. Overwrite? (y/N): ');
       if (overwrite.toLowerCase() !== 'y') {
         console.log('Setup cancelled.');
@@ -40,9 +57,7 @@ async function setup() {
 
     const config = { token, clientId, guildId };
     fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
-    // Keep a root-level copy for backward compat with CommandHandler
-    fs.writeFileSync(legacyPath, JSON.stringify(config, null, 2));
-    console.log('\n✅ config.json saved!');
+    console.log('\n✅ config/config.json saved!');
 
     console.log('\n🔊 TTS Provider');
     console.log('─────────────────');
@@ -78,7 +93,7 @@ async function setup() {
     const installDeps = await ask('\n📦 Install dependencies now? (Y/n): ');
     if (installDeps.toLowerCase() !== 'n') {
       console.log('Installing…');
-      execSync('npm install', { stdio: 'inherit' });
+      execFileSync(findNpm(), ['install'], { stdio: 'inherit' });
       console.log('✅ Dependencies installed!');
     }
 

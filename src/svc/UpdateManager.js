@@ -58,7 +58,9 @@ function findNpm() {
  */
 const PROTECTED = new Set([
   'config.json',
+  'config/config.json',
   'config/settings.json',
+  'config/players.json',
   'config/custom_audio',
 ]);
 
@@ -159,17 +161,20 @@ class UpdateManager {
   /**
    * Download a URL to destPath, following HTTP 301/302 redirects.
    * GitHub's tarball_url always issues a redirect to S3.
-   * Times out after 60 s of inactivity.
+   * Times out after 60 s of inactivity. Aborts after 10 redirects.
    */
   _downloadFile(url, destPath) {
     return new Promise((resolve, reject) => {
-      const follow = (currentUrl) => {
+      const follow = (currentUrl, depth = 0) => {
+        if (depth > 10) {
+          return reject(new Error('Too many redirects downloading tarball (> 10)'));
+        }
         const req = https.get(currentUrl, {
           headers: { 'User-Agent': `${REPO_NAME}-bot` },
         }, (res) => {
           if (res.statusCode === 301 || res.statusCode === 302) {
             req.destroy();
-            return follow(res.headers.location);
+            return follow(res.headers.location, depth + 1);
           }
           if (res.statusCode !== 200) {
             return reject(new Error(`HTTP ${res.statusCode} downloading tarball`));

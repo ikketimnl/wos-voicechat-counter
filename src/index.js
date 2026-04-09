@@ -7,14 +7,12 @@ const fs   = require('fs');
 // ── Config loading ─────────────────────────────────────────────────────────
 const configPath = path.join(__dirname, '../config/config.json');
 if (!fs.existsSync(configPath)) {
-  console.error('❌ config.json not found. Run: node setup.js');
-  console.error(__dirname);
-  console.error(configPath);
+  console.error('❌ config/config.json not found. Run: node src/setup.js');
   process.exit(1);
 }
 const config = require(configPath);
 if (!config.token || !config.clientId || !config.guildId) {
-  console.error('❌ config.json is incomplete. Run: node setup.js');
+  console.error('❌ config/config.json is incomplete. Run: node src/setup.js');
   process.exit(1);
 }
 
