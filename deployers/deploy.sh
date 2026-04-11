@@ -25,11 +25,11 @@ fi
 echo "📁 Creating directories..."
 mkdir -p config config/custom_audio temp temp/library
 
-# Check for config.json (root level — that's where the bot reads it)
-if [ ! -f "config.json" ] || [ "$(cat config.json)" = '{"token":"","clientId":"","guildId":""}' ]; then
+# Check for config/config.json — that's where the bot reads it
+if [ ! -f "config/config.json" ] || [ "$(cat config/config.json)" = '{"token":"","clientId":"","guildId":""}' ]; then
   echo ""
-  echo "⚠️  config.json is empty or missing. Run the setup wizard first:"
-  echo "   node setup.js"
+  echo "⚠️  config/config.json is empty or missing. Run the setup wizard first:"
+  echo "   node src/setup.js"
   echo ""
   read -rp "Continue without config? (y/N): "
   [[ $REPLY =~ ^[Yy]$ ]] || exit 1

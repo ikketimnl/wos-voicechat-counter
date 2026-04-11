@@ -1,7 +1,7 @@
 @echo off
 setlocal
 
-:: Force elevation
+:: Force elevation — UAC prompt if not already admin
 net session >nul 2>&1
 if %errorLevel% neq 0 (
     powershell -Command "Start-Process '%~f0' -Verb RunAs -WindowStyle Normal -WorkingDirectory '%~dp0'"
@@ -19,11 +19,18 @@ set "RED=%ESC%[31m"
 set "RESET=%ESC%[0m"
 
 echo %MAGENTA%==============================
-echo Rally Countdown Voice bot
+echo  WoS VoiceChat Counter
+echo  Windows Setup
 echo ==============================%RESET%
 echo.
-echo %BLUE% Let's start by setting things up... %RESET%
-timeout /t 2
+echo %BLUE% This script will:
+echo   1. Install Node.js v22 if needed
+echo   2. Clone the bot from GitHub
+echo   3. Install dependencies
+echo   4. Collect your Discord credentials
+echo   5. Create start.bat and stop.bat %RESET%
+echo.
+timeout /t 3 /nobreak >nul
 
 :: ----------------------------------------
 :: Node.js v22 check and install
@@ -43,7 +50,7 @@ echo %BLUE% Detected Node.js major version: %NODE_MAJOR% %RESET%
 
 if "%NODE_MAJOR%"=="22" (
     echo %GREEN% Node.js v22 already installed. %RESET%
-    goto :install_packages
+    goto :clone_repo
 )
 
 echo %RED% Node.js v%NODE_MAJOR% detected but v22 is required. Upgrading... %RESET%
@@ -72,47 +79,74 @@ set "PATH=%PATH%;C:\Program Files\nodejs"
 node --version >nul 2>&1
 if %errorlevel% neq 0 (
     echo %RED% Node.js installed but PATH not updated yet. %RESET%
-    echo %BLUE% Please close this window and re-run the script once more. %RESET%
+    echo %BLUE% Please close this window and re-run the script. %RESET%
     pause
     exit /b 0
 )
 echo %GREEN% Node.js v22 installed successfully! %RESET%
 
 :: ----------------------------------------
-:: Other winget installs
+:: Clone the repository
 :: ----------------------------------------
-:install_packages
-winget install -e --id Git.Git --accept-package-agreements --accept-source-agreements
-winget install -e --id Docker.DockerDesktop --accept-package-agreements --accept-source-agreements
-winget install -e --id Python.Python.3 --accept-package-agreements --accept-source-agreements
-winget install -e --id Microsoft.VisualStudio.2022.BuildTools --accept-package-agreements --accept-source-agreements
+:clone_repo
+echo.
+echo %BLUE% Checking for Git... %RESET%
+git --version >nul 2>&1
+if %errorlevel% neq 0 (
+    echo %BLUE% Git not found. Installing via winget... %RESET%
+    winget install -e --id Git.Git --accept-package-agreements --accept-source-agreements
+    :: Refresh PATH
+    set "PATH=%PATH%;C:\Program Files\Git\cmd"
+)
 
-git clone https://github.com/ikketimnl/wos-voicechat-counter.git counterbotVC
-cd counterbotVC
+echo %BLUE% Cloning bot repository... %RESET%
+if exist counterbotVC (
+    echo %BLUE% counterbotVC folder already exists — pulling latest... %RESET%
+    cd counterbotVC
+    git pull
+) else (
+    git clone https://github.com/ikketimnl/wos-voicechat-counter.git counterbotVC
+    cd counterbotVC
+)
 
-del /q deploy.sh
-del /q *.md
-del /q env.example
-del /q config.json
-del /q .gitignore
-del /q *.bat
+:: ----------------------------------------
+:: Install Node dependencies
+:: ----------------------------------------
+echo.
+echo %BLUE% Installing dependencies... %RESET%
+npm install --no-audit --no-fund
+if %errorLevel% neq 0 (
+    echo %RED% npm install failed. Check your internet connection and try again. %RESET%
+    pause
+    exit /b 1
+)
+echo %GREEN% Dependencies installed. %RESET%
 
-mkdir config
-
+:: ----------------------------------------
+:: Collect Discord credentials and write config
+:: ----------------------------------------
 cls
+echo.
+echo %MAGENTA% ==============================
+echo  Discord Configuration
+echo  ==============================%RESET%
+echo.
+echo %BLUE% You need three values from the Discord Developer Portal:
+echo   - Bot Token       (Bot page ^> Token ^> Reset Token)
+echo   - Application ID  (General Information ^> Application ID)
+echo   - Server ID       (Right-click your server ^> Copy Server ID)%RESET%
 echo.
 echo %RED% CLICK ON THIS WINDOW BEFORE TYPING! %RESET%
 echo.
-echo %BLUE% Now we need some info to create the config %RESET%
-echo.
-timeout /t 1 /nobreak >nul
 
-set /p token=%GREEN%Enter your Discord Bot Token:%RESET%
-set /p clientId=%GREEN%Enter your Client ID:%RESET%
-set /p guildId=%GREEN%Enter your Guild ID:%RESET%
+if not exist config mkdir config
+
+set /p token=%GREEN%Enter your Discord Bot Token: %RESET%
+set /p clientId=%GREEN%Enter your Application ID:   %RESET%
+set /p guildId=%GREEN%Enter your Server ID:         %RESET%
 
 echo.
-echo %BLUE% Creating config.json ... %RESET%
+echo %BLUE% Writing config\config.json ... %RESET%
 
 (
 echo {
@@ -120,85 +154,80 @@ echo   "token": "%token%",
 echo   "clientId": "%clientId%",
 echo   "guildId": "%guildId%"
 echo }
-) > config.json
+) > config\config.json
 
-echo.
-echo %BLUE% config.json created successfully! %RESET%
-echo.
-timeout /t 1 /nobreak >nul
+echo %GREEN% config\config.json created. %RESET%
 
-cls
-echo.
-echo %BLUE% Installing dependencies... %RESET%
-echo.
-timeout /t 2 /nobreak >nul
-
-cmd /c npm install --no-audit --no-fund 2>nul
-if %errorLevel% neq 0 (
-    echo %RED% npm install failed. Please restart the script. %RESET%
-    pause
-    exit /b 1
+:: ----------------------------------------
+:: Write default settings.json if absent
+:: ----------------------------------------
+if not exist config\settings.json (
+    echo %BLUE% Writing default config\settings.json ... %RESET%
+    (
+    echo {
+    echo   "ttsProvider": "local",
+    echo   "countDirection": "down",
+    echo   "introEnabled": true,
+    echo   "introSpeed": "normal",
+    echo   "voiceRate": 170,
+    echo   "piperModel": "C:\\Program Files\\piper\\voices\\en_US-lessac-medium.onnx",
+    echo   "customAudioDir": null,
+    echo   "version": null
+    echo }
+    ) > config\settings.json
+    echo %GREEN% config\settings.json created with defaults. %RESET%
 )
 
-:: All packages are already in package.json
-echo.
-echo %BLUE% Dependencies installed via npm install... %RESET%
-:: All dependencies are installed via npm install above (package.json is the source of truth)
-:: No extra packages needed
+if not exist config\custom_audio mkdir config\custom_audio
 
-cls
-echo.
-echo %BLUE% Everything is set up. Time to build the container. %RESET%
-echo.
-echo %BLUE% Please be patient, this might take a few minutes. %RESET%
-echo.
-timeout /t 2 /nobreak >nul
-
-start "" "C:\Program Files\Docker\Docker\Docker Desktop.exe"
-timeout /t 15 /nobreak >nul
-
-docker compose build
-
+:: ----------------------------------------
 :: Create start.bat
+:: ----------------------------------------
+echo.
+echo %BLUE% Creating start.bat ... %RESET%
 (
 echo @echo off
-echo net session ^>nul 2^>^&1
-echo if %%errorLevel%% neq 0 ^(
-echo     powershell -Command "Start-Process '%%~f0' -Verb RunAs -WindowStyle Normal -WorkingDirectory '%%~dp0'"
-echo     exit /b
-echo ^)
 echo cd /d "%%~dp0"
 echo echo.
-echo echo Please wait while we get things ready for you.
+echo echo Starting WoS VoiceChat Counter...
+echo echo Press Ctrl+C to stop.
 echo echo.
-echo start "" "C:\Program Files\Docker\Docker\Docker Desktop.exe"
-echo timeout /t 15 /nobreak ^>nul
-echo docker compose up -d
-echo echo.
-echo echo you can close this window now
-echo echo.
+echo node index.js
 echo pause
 ) > start.bat
+echo %GREEN% start.bat created. %RESET%
 
-:: Create stop.bat
+:: ----------------------------------------
+:: Create stop.bat  (sends Ctrl+C to any node index.js process)
+:: ----------------------------------------
+echo %BLUE% Creating stop.bat ... %RESET%
 (
 echo @echo off
-echo timeout /t 5 /nobreak >nul
-echo docker compose down
-echo echo.
-echo echo you can close this window now
-echo echo.
+echo echo Stopping WoS VoiceChat Counter...
+echo taskkill /f /im node.exe /fi "WINDOWTITLE eq WoS*" >nul 2>^&1
+echo taskkill /f /im node.exe >nul 2>^&1
+echo echo Done.
 echo pause
 ) > stop.bat
+echo %GREEN% stop.bat created. %RESET%
 
+:: ----------------------------------------
+:: Done
+:: ----------------------------------------
 cls
 echo %MAGENTA% ==============================
-echo Installation has successfully finished
-echo ============================== %RESET%
+echo  Setup complete!
+echo  ==============================%RESET%
 echo.
-echo %BLUE% You can now start your bot by clicking the start.bat file. %RESET%
+echo %GREEN% The bot is installed in: %CD% %RESET%
 echo.
-echo %MAGENTA% Happy battling! %RESET%
+echo %BLUE% To start the bot:    double-click start.bat%RESET%
+echo %BLUE% To stop the bot:     double-click stop.bat%RESET%
+echo %BLUE% To change settings:  use /settings in Discord%RESET%
+echo.
+echo %BLUE% First-time startup will generate TTS audio files (1-200).
+echo This takes a few minutes and is cached for future runs.%RESET%
+echo.
 pause
 
 endlocal

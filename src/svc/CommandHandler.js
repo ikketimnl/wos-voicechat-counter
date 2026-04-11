@@ -15,7 +15,6 @@ const {
 } = require('discord.js');
 const path    = require('path');
 const https   = require('https');
-const http    = require('http');
 const { BotSettings }        = require('./BotSettings');
 const { UpdateManager }      = require('./UpdateManager');
 const { CustomAudioManager } = require('./CustomAudioManager');
@@ -34,8 +33,10 @@ class CommandHandler {
       if (packet.t === 'INTERACTION_CREATE' && packet.d.type === 5) { 
         const resolved = packet.d.data?.resolved;
         if (resolved && resolved.attachments) {
-          // Snatch the file data and save it using the interaction ID as the key
-          this.rawAttachments.set(packet.d.id, Object.values(resolved.attachments)[0]);
+          const interactionId = packet.d.id;
+          this.rawAttachments.set(interactionId, Object.values(resolved.attachments)[0]);
+          // Auto-expire stale entries after 5 minutes
+          setTimeout(() => this.rawAttachments.delete(interactionId), 5 * 60 * 1000);
         }
       }
     });
@@ -73,6 +74,8 @@ class CommandHandler {
 
     this.commands.set('clear', cmd('clear', 'Remove all players').toJSON());
 
+    this.commands.set('wipe', cmd('wipe', 'Instantly wipe ALL players — no confirmation').toJSON());
+
     this.commands.set('cleargroup', cmd('cleargroup', 'Remove all players in a group')
       .addIntegerOption(o => int(o, 'group', 'Group number'))
       .toJSON());
@@ -109,7 +112,7 @@ class CommandHandler {
 
   async registerCommands() {
     const { REST, Routes } = require('discord.js');
-    const config = require(path.join(__dirname, '../../config.json'));
+    const config = require(path.join(__dirname, '../../config/config.json'));
     const rest   = new REST({ version: '10' }).setToken(config.token);
 
     console.log('🔄 Registering slash commands…');
@@ -135,6 +138,7 @@ class CommandHandler {
         case 'update':     return await this._handleUpdate(interaction);
         case 'remove':     return await this._handleRemove(interaction);
         case 'clear':      return await this._handleClear(interaction);
+        case 'wipe':       return await this._handleWipe(interaction);
         case 'cleargroup': return await this._handleClearGroup(interaction);
         case 'list':       return await this._handleList(interaction);
         case 'join':       return await this._handleJoin(interaction);
@@ -392,6 +396,20 @@ class CommandHandler {
     await interaction.reply({ embeds: [embed] });
   }
 
+  async _handleWipe(interaction) {
+    const count = this.client.playerManager.wipeAllPlayers();
+    const embed = new EmbedBuilder()
+      .setTitle('🔥 Players Wiped!')
+      .setColor('#F44336')
+      .setDescription(
+        count > 0
+          ? `**${count} player(s)** permanently removed and save file cleared.`
+          : 'No players were registered — nothing to wipe.',
+      )
+      .setTimestamp();
+    await interaction.reply({ embeds: [embed] });
+  }
+
   async _handleClearGroup(interaction) {
     const group   = interaction.options.getInteger('group');
     const players = this.client.playerManager.getPlayersByGroup(group);
@@ -559,7 +577,7 @@ class CommandHandler {
         { name: '🔊 TTS',         value: BotSettings.providerLabel(provider),               inline: true },
         { name: '🔢 Direction',   value: dir === 'up' ? 'Count Up ↑' : 'Count Down ↓',     inline: true },
         { name: '📢 Intro',       value: intro ? '✅ Enabled' : '❌ Disabled',              inline: true },
-        { name: '🐢 Intro Speed', value: { normal: 'Normal', slower: 'Slower', slow: 'Slow', slowest: 'Slowest' }[this.settings.get('introSpeed') ?? 'normal'], inline: true },
+        { name: '🐢 Intro Speed', value: { normal: 'Normal', slower: 'Slower', slow: 'Slow', slowest: 'Slowest' }[this.settings.introSpeed ?? 'normal'], inline: true },
         { name: '💾 Cache',       value: `${cacheStats.libraryFiles} lib / ${cacheStats.countdownFiles} countdowns`, inline: true },
       )
       .setTimestamp();
@@ -936,8 +954,7 @@ class CommandHandler {
 
   _downloadBuffer(url) {
     return new Promise((resolve, reject) => {
-      const mod = url.startsWith('https') ? https : http;
-      const req = mod.get(url, (res) => {
+      const req = https.get(url, (res) => {
         if (res.statusCode !== 200) return reject(new Error(`HTTP ${res.statusCode}`));
         const chunks = [];
         res.on('data',  c  => chunks.push(c));

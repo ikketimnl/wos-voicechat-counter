@@ -25,6 +25,7 @@ class BotSettings {
       introSpeed:       'normal',    // normal | slower | slow
       customAudioDir:   null,         // path to user-supplied WAV files (null = use TTS)
       voiceRate:        170,          // words-per-minute hint for macOS say
+      piperModel:       '/usr/local/bin/voices/en_US-lessac-medium.onnx', // Piper ONNX model path
       version:          null,         // set after first run by UpdateManager
     };
   }
