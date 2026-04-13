@@ -17,7 +17,7 @@ We made a github wiki for the bot with all kinds of guides (ai generated) you ca
 | ⚔️ Attack groups | Organize players into independent groups |
 | 🔢 Count direction | Toggle between **Count Down** (max→1) and **Count Up** (1→max) via `/settings` |
 | 📢 Rally intro | Optional spoken intro before counting; enable/disable via `/settings` |
-| 🔊 Voice generators | Choose from **local auto-detect**, **eSpeak NG**, **Festival**, **Piper neural TTS**, or **console** (see `DOCKER.md` for Piper setup) |
+| 🔊 Voice generators | Choose from **local auto-detect**, **eSpeak NG**, **Festival**, **Piper neural TTS**, or **console** (see `docs/DOCKER.md` for Piper setup) |
 | 🎵 Custom audio Menu | Upload and manage your own WAV/MP3/OGG files for numbers, the intro and the outro via the ineractive `/audio` menu in Discord |
 | ⚙️ Visual settings menu | Full interactive settings panel — `/settings` in Discord |
 | 🆕 In-bot updates | `/botupdate` checks GitHub Releases and can pull + reinstall automatically |
@@ -32,18 +32,22 @@ We made a github wiki for the bot with all kinds of guides (ai generated) you ca
 ```bash
 git clone https://github.com/ikketimnl/wos-voicechat-counter.git
 cd wos-voicechat-counter
-node setup.js          # interactive wizard
-docker compose up -d
+node src/setup.js      # interactive wizard — creates config/config.json
+docker compose up -d   # pulls pre-built image from GHCR and starts the bot
 ```
+
+> To build the image locally from source instead, replace `image:` with `build: { context: . }` in `docker-compose.yml`.
 
 ### Option B — Local (Windows / macOS / Linux)
 
 ```bash
 git clone https://github.com/ikketimnl/wos-voicechat-counter.git
 cd wos-voicechat-counter
-node setup.js
+node src/setup.js
 npm start
 ```
+
+> **Windows users:** run `deployers/windowsautosetup.bat` for a guided install that handles Node.js, Git, and config setup automatically.
 
 ---
 
@@ -64,7 +68,7 @@ npm start
 |---|---|
 | `/join` | Bot joins your voice channel |
 | `/leave` | Bot leaves the voice channel |
- `/launch [group](optional)` | Start the synchronized countdown (Default: group 1) |
+| `/launch [group](optional)` | Start the synchronized countdown (Default: group 1) |
 | `/preview [group](optional)` | Preview timing without starting (Default: group 1) |
 | `/stop` | Stop an active countdown |
 | `/status` | Show bot status and current settings |
@@ -129,7 +133,7 @@ Files are stored in `config/custom_audio/` (Docker volume-mounted, survives rebu
 | `local` | Good | Auto-detects SAPI (Win), say (Mac), espeak (Linux) |
 | `espeak` | Robotic | Fast, always available in Docker |
 | `festival` | Better | Deeper voice, always available in Docker |
-| `piper` | Natural | Neural TTS — requires extra install (see `DOCKER.md`) |
+| `piper` | Natural | Neural TTS — requires extra install (see `docs/DOCKER.md`) |
 | `console` | None | Logs only — useful for testing without audio |
 
 Switch between them live with `/settings`. The number library regenerates automatically and cached files from the old engine are cleaned up.
@@ -138,7 +142,7 @@ Switch between them live with `/settings`. The number library regenerates automa
 
 ## 🐳 Docker & Sysadmin
 
-See **[DOCKER.md](DOCKER.md)** for:
+See **[DOCKER.md](docs/DOCKER.md)** for:
 - Full Docker deployment guide
 - Installing Piper Neural TTS (step-by-step)
 - Cache management and disk usage tips
