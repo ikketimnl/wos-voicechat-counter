@@ -26,6 +26,8 @@ class CommandHandler {
     this.customAudio   = customAudio;
     this.updateManager = new UpdateManager();
     this.commands      = new Map();
+    // Per-user cooldown for /register to prevent spam (userId → expiry timestamp)
+    this._registerCooldowns = new Map();
 // --- 🚨 THE HEIST: Intercept raw Discord data before discord.js destroys it! ---
     this.rawAttachments = new Map();
     this.client.on('raw', packet => {
@@ -112,13 +114,17 @@ class CommandHandler {
 
   async registerCommands() {
     const { REST, Routes } = require('discord.js');
-    const config = require(path.join(__dirname, '../../config/config.json'));
-    const rest   = new REST({ version: '10' }).setToken(config.token);
+    const cfgPath = path.join(__dirname, '../../config/config.json');
+    const fileCfg = require('fs').existsSync(cfgPath) ? (() => { try { return JSON.parse(require('fs').readFileSync(cfgPath, 'utf8')); } catch (_) { return {}; } })() : {};
+    const token    = process.env.DISCORD_TOKEN     || fileCfg.token;
+    const clientId = process.env.DISCORD_CLIENT_ID || fileCfg.clientId;
+    const guildId  = process.env.DISCORD_GUILD_ID  || fileCfg.guildId;
+    const rest   = new REST({ version: '10' }).setToken(token);
 
     console.log('🔄 Registering slash commands…');
     try {
       await rest.put(
-        Routes.applicationGuildCommands(config.clientId, config.guildId),
+        Routes.applicationGuildCommands(clientId, guildId),
         { body: Array.from(this.commands.values()) },
       );
       console.log('✅ Slash commands registered.');
@@ -289,7 +295,10 @@ class CommandHandler {
 
     // Process Delete
     if (id === 'audio_do_delete') {
-      this.customAudio.deleteFile(interaction.values[0]);
+      const delResult = this.customAudio.deleteFile(interaction.values[0]);
+      if (!delResult.success) {
+        return interaction.update({ content: `❌ Could not delete file: ${delResult.error}`, components: [] });
+      }
       this.client.voiceManager.getTTSService().resetLibrary();
       return interaction.update({ content: `🗑️ Deleted \`${interaction.values[0]}\`.`, components: [] });
     }
@@ -313,7 +322,7 @@ class CommandHandler {
       this.client.voiceManager.getTTSService().resetLibrary();
       return interaction.update({ content: `🔥 Successfully deleted **${n}** custom audio files.`, components: [] });
     }
-    if (id === 'audio_ui_clear_cancel') {await interaction.deferUpdate(); return interaction.deleteReply();}
+    if (id === 'audio_ui_clear_cancel') { await interaction.deferUpdate(); return interaction.deleteReply().catch(() => {}); }
 
     // List Files
     if (id === 'audio_ui_list') return this._audioList(interaction);
@@ -327,7 +336,24 @@ class CommandHandler {
   // ═══════════════════════════════════════════════════════════════════════════
 
   async _handleRegister(interaction) {
-    const name    = interaction.options.getString('playername');
+    // Rate-limit: max one /register per user per 3 seconds
+    const now = Date.now();
+    const cooldownExpiry = this._registerCooldowns.get(interaction.user.id) ?? 0;
+    if (now < cooldownExpiry) {
+      const remaining = ((cooldownExpiry - now) / 1000).toFixed(1);
+      return interaction.reply({ content: `⏳ Please wait **${remaining}s** before registering again.`, flags: MessageFlags.Ephemeral });
+    }
+    this._registerCooldowns.set(interaction.user.id, now + 3_000);
+    // Expire the cooldown entry automatically to avoid unbounded map growth
+    setTimeout(() => this._registerCooldowns.delete(interaction.user.id), 3_000);
+
+    // Sanitise player name: trim whitespace, strip newlines, cap at 50 characters
+    const rawName = interaction.options.getString('playername');
+    const name    = rawName.trim().replace(/[\r\n\t]+/g, ' ').slice(0, 50);
+    if (!name) {
+      return interaction.reply({ content: '❌ Player name cannot be empty.', flags: MessageFlags.Ephemeral });
+    }
+
     const seconds = interaction.options.getInteger('seconds');
     const group   = interaction.options.getInteger('group') ?? 1;
 

@@ -12,6 +12,13 @@ services:
 
     environment:
       - NODE_ENV=production
+      # Optional: pass Discord credentials via env vars instead of config/config.json.
+      # If set in the host shell / .env file, they are forwarded into the container.
+      - DISCORD_TOKEN
+      - DISCORD_CLIENT_ID
+      - DISCORD_GUILD_ID
+      # Optional: override the Piper ONNX model path (useful for custom voice models).
+      - PIPER_MODEL
 
     volumes:
       # config/ holds config.json, settings.json, players.json and custom_audio/.

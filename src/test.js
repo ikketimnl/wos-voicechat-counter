@@ -4,76 +4,23 @@
  * test.js — offline unit tests (no Discord connection needed)
  * Run with: node src/test.js   (or: npm test)
  *
- * Both PlayerManager and BotSettings persist to disk on every write.
- * To prevent tests from corrupting live data files we monkey-patch each
- * module's file-path constant to a PID-scoped temp path before the module
- * is first required, and clean up unconditionally on exit.
+ * PlayerManager and BotSettings are redirected to PID-scoped temp files via
+ * WOS_PLAYERS_FILE / WOS_SETTINGS_FILE env vars, avoiding any live-data writes.
  */
 
 const fs   = require('fs');
 const path = require('path');
 const os   = require('os');
 
-const Module = require('module');
-
-// ── PlayerManager isolation ───────────────────────────────────────────────────
+// ── Isolation: set env vars BEFORE requiring the modules ─────────────────────
 const TEST_PLAYERS_FILE  = path.join(os.tmpdir(), `wos_test_players_${process.pid}.json`);
-const playerManagerPath  = require.resolve('./svc/PlayerManager');
-fs.mkdirSync(path.dirname(TEST_PLAYERS_FILE), { recursive: true });
-fs.writeFileSync(TEST_PLAYERS_FILE, '[]', 'utf8');
-
-// Patch before first require
-{
-  const origLoad = Module._load;
-  Module._load = function (request, parent, isMain) {
-    const resolved = (() => { try { return require.resolve(request, { paths: [parent?.filename ?? __dirname] }); } catch (_) { return null; } })();
-    if (resolved === playerManagerPath) {
-      Module._load = origLoad;
-      const src = fs.readFileSync(playerManagerPath, 'utf8')
-        .replace(/const PLAYERS_FILE\s*=.*?;/, `const PLAYERS_FILE = ${JSON.stringify(TEST_PLAYERS_FILE)};`);
-      const m = new Module(playerManagerPath, parent);
-      m.filename = playerManagerPath;
-      m.paths    = Module._nodeModulePaths(path.dirname(playerManagerPath));
-      m._compile(src, playerManagerPath);
-      Module._cache[playerManagerPath] = m;
-      return m.exports;
-    }
-    return origLoad.apply(this, arguments);
-  };
-}
-
-// ── BotSettings isolation ─────────────────────────────────────────────────────
 const TEST_SETTINGS_FILE = path.join(os.tmpdir(), `wos_test_settings_${process.pid}.json`);
-const botSettingsPath    = require.resolve('./svc/BotSettings');
-fs.mkdirSync(path.dirname(TEST_SETTINGS_FILE), { recursive: true });
-// Write a minimal valid settings file so _load() finds something to parse
+
+fs.writeFileSync(TEST_PLAYERS_FILE,  '[]',                                                                    'utf8');
 fs.writeFileSync(TEST_SETTINGS_FILE, JSON.stringify({ ttsProvider: 'local', countDirection: 'down', introEnabled: true }), 'utf8');
 
-// Patch before first require — BotSettings sets this.settingsPath in the
-// constructor, so we patch the constructor's path.join call by replacing the
-// hard-coded relative path string in the source.
-{
-  const origLoad = Module._load;
-  Module._load = function (request, parent, isMain) {
-    const resolved = (() => { try { return require.resolve(request, { paths: [parent?.filename ?? __dirname] }); } catch (_) { return null; } })();
-    if (resolved === botSettingsPath) {
-      Module._load = origLoad;
-      const src = fs.readFileSync(botSettingsPath, 'utf8')
-        // Replace the settingsPath assignment in the constructor
-        .replace(
-          /this\.settingsPath\s*=\s*path\.join\(__dirname.*?\);/,
-          `this.settingsPath = ${JSON.stringify(TEST_SETTINGS_FILE)};`,
-        );
-      const m = new Module(botSettingsPath, parent);
-      m.filename = botSettingsPath;
-      m.paths    = Module._nodeModulePaths(path.dirname(botSettingsPath));
-      m._compile(src, botSettingsPath);
-      Module._cache[botSettingsPath] = m;
-      return m.exports;
-    }
-    return origLoad.apply(this, arguments);
-  };
-}
+process.env.WOS_PLAYERS_FILE  = TEST_PLAYERS_FILE;
+process.env.WOS_SETTINGS_FILE = TEST_SETTINGS_FILE;
 
 // ── Safe to require now ───────────────────────────────────────────────────────
 const { PlayerManager }      = require('./svc/PlayerManager');
@@ -151,18 +98,10 @@ async function runTests() {
 
   assertThrows(() => pm.calculateAttackTiming(99), 'timing for non-existent group throws');
 
-  // Verify persistence: reload from the temp file and check data survived
-  delete require.cache[playerManagerPath];
-  const src2 = fs.readFileSync(playerManagerPath, 'utf8')
-    .replace(
-      /const PLAYERS_FILE\s*=.*?;/,
-      `const PLAYERS_FILE = ${JSON.stringify(TEST_PLAYERS_FILE)};`,
-    );
-  const m2 = new Module(playerManagerPath, module);
-  m2.filename = playerManagerPath;
-  m2.paths = Module._nodeModulePaths(path.dirname(playerManagerPath));
-  m2._compile(src2, playerManagerPath);
-  const pm2 = new m2.exports.PlayerManager();
+  // Verify persistence: reload from the temp file (env var still set, so it uses same path)
+  delete require.cache[require.resolve('./svc/PlayerManager')];
+  const { PlayerManager: PlayerManager2 } = require('./svc/PlayerManager');
+  const pm2 = new PlayerManager2();
   assert(pm2.getPlayerCount() === 1 && pm2.hasPlayer('Solo'), 'persistence: reloaded player survives restart');
   pm2.clearAllPlayers();
 
@@ -205,7 +144,6 @@ async function runTests() {
   assert(um._compareVersions('1.10.0','1.9.0')  ===  1, '1.10 > 1.9 (no false sort)');
 
   // Test offline behaviour: mock _fetchJson to throw a network error
-  // and verify performUpdate returns a failure result — no real network needed.
   const networkResult = await (async () => {
     const origFetch = um._fetchJson.bind(um);
     um._fetchJson = () => Promise.reject(new Error('Network unreachable'));
@@ -213,32 +151,30 @@ async function runTests() {
     um._fetchJson = origFetch;
     return r;
   })();
-  assert(!networkResult.success,                           'performUpdate fails on network error');
-  assert(typeof networkResult.output === 'string',         'performUpdate returns string output on failure');
-  assert(networkResult.output.includes('Network'),         'performUpdate error includes error message');
+  assert(!networkResult.success,                   'performUpdate fails on network error');
+  assert(typeof networkResult.output === 'string', 'performUpdate returns string output on failure');
+  assert(networkResult.output.includes('Network'), 'performUpdate error includes error message');
 
   // Test redirect loop protection in _downloadFile
   let loopError = null;
   await (async () => {
-    const origFetch = um._fetchJson.bind(um);
-    um._fetchJson = async () => ({ tag_name: 'v9.9.9', tarball_url: 'https://example.com/loop' });
+    const origFetch    = um._fetchJson.bind(um);
     const origDownload = um._downloadFile.bind(um);
-    um._downloadFile = (url, dest) => new Promise((_, reject) => {
-      // simulate 11 redirects to trigger the depth guard
-      let depth = 0;
-      const follow = (u, d) => {
-        if (d > 10) return reject(new Error('Too many redirects downloading tarball (> 10)'));
-        follow(u, d + 1);
+    um._fetchJson = async () => ({ tag_name: 'v9.9.9', tarball_url: 'https://example.com/loop' });
+    um._downloadFile = (_url, _dest) => new Promise((_resolve, reject) => {
+      const follow = (depth) => {
+        if (depth > 10) return reject(new Error('Too many redirects downloading tarball (> 10)'));
+        follow(depth + 1);
       };
-      follow(url, depth);
+      follow(0);
     });
     const r = await um.performUpdate();
     loopError = r;
-    um._fetchJson = origFetch;
+    um._fetchJson    = origFetch;
     um._downloadFile = origDownload;
   })();
-  assert(!loopError.success,                               'performUpdate fails on redirect loop');
-  assert(loopError.output.includes('redirects'),           'redirect loop error is descriptive');
+  assert(!loopError.success,                    'performUpdate fails on redirect loop');
+  assert(loopError.output.includes('redirects'),'redirect loop error is descriptive');
 
   // ── CustomAudioManager ─────────────────────────────────────────────────────
   console.log('\n4. CustomAudioManager');
@@ -263,6 +199,15 @@ async function runTests() {
 
   const r4 = await ca.saveFile('abc.wav', Buffer.from('x'));
   assert(!r4.success, 'rejects non-numeric non-special name');
+
+  // Magic-byte validation (added in audit fix)
+  const r5 = await ca.saveFile('1.wav', Buffer.from('This is not a WAV file'));
+  assert(!r5.success && r5.error.toLowerCase().includes('wav'), 'rejects non-WAV buffer with .wav extension');
+
+  const wavBuf = Buffer.from([0x52,0x49,0x46,0x46, 0,0,0,0, 0x57,0x41,0x56,0x45, ...Buffer.alloc(4)]);
+  const r6 = await ca.saveFile('1.wav', wavBuf);
+  assert(r6.success, 'accepts valid WAV magic bytes');
+  ca.deleteFile('1.wav');
 
   // ── Summary ────────────────────────────────────────────────────────────────
   console.log(`\n${'─'.repeat(40)}`);
