@@ -36,12 +36,19 @@ class TTSService {
     this.audioCache         = new Map();
     this.numberLibrary      = new Map();
     this.libraryInitialized = false;
+    this._generationId      = 0;   // incremented by resetLibrary() to cancel in-flight builds
     this.platform           = process.platform;
     this.windowsVoice       = null;
     this._cleanTempDir();
   }
 
   get provider() { return this.settings.ttsProvider; }
+
+  /** Delete a file, ignoring ENOENT. Logs other unexpected errors. */
+  _safeUnlink(filePath) {
+    try { fs.unlinkSync(filePath); }
+    catch (err) { if (err.code !== 'ENOENT') console.warn(`[TTSService] Failed to delete ${filePath}: ${err.message}`); }
+  }
 
   get tempDir() {
     const d = path.join(__dirname, '../../temp');
@@ -61,10 +68,12 @@ class TTSService {
       if (!fs.existsSync(d)) return;
       for (const f of fs.readdirSync(d)) {
         if (/^(intro_|final_|sync_countdown_|seg_|raw_|list_|tts_|intro_norm_|complete_norm_)|_spd_raw\.wav$/.test(f)) {
-          try { fs.unlinkSync(path.join(d, f)); } catch (_) {}
+          this._safeUnlink(path.join(d, f));
         }
       }
-    } catch (_) {}
+    } catch (err) {
+      console.warn('[TTSService] _cleanTempDir error:', err.message);
+    }
   }
 
   // ── Windows voice detection (no shell, pure PowerShell execFile) ───────────
@@ -116,7 +125,7 @@ class TTSService {
       '-ar', '48000', '-ac', '2', '-sample_fmt', 's16',
       outputFile,
     ]);
-    try { fs.unlinkSync(rawPath); } catch (_) {}
+    this._safeUnlink(rawPath);
   }
 
   // ── Platform TTS: execFile only, no shell ──────────────────────────────────
@@ -255,14 +264,16 @@ class TTSService {
   }
 
   async initializeNumberLibrary() {
-    const markerFile     = path.join(this.libraryDir, this._libraryCacheKey());
+    const genId      = this._generationId; // snapshot — if resetLibrary() is called mid-build we abort
+    const markerFile = path.join(this.libraryDir, this._libraryCacheKey());
     const existingMarkers = fs.readdirSync(this.libraryDir).filter(f => f.startsWith('.provider-'));
 
     if (!existingMarkers.includes(path.basename(markerFile))) {
       console.log('🔄 TTS provider changed — clearing number library…');
       for (const f of fs.readdirSync(this.libraryDir)) {
         if (!f.startsWith('.provider-') || f !== path.basename(markerFile)) {
-          try { fs.unlinkSync(path.join(this.libraryDir, f)); } catch (_) {}
+          try { fs.unlinkSync(path.join(this.libraryDir, f)); }
+          catch (err) { if (err.code !== 'ENOENT') console.warn(`[TTSService] cleanup: ${err.message}`); }
         }
       }
       this.numberLibrary.clear();
@@ -274,6 +285,20 @@ class TTSService {
     if (this.provider === 'console') {
       this.libraryInitialized = true;
       return;
+    }
+
+    // Require at least 150 MB free before building a 200-number library (~50–100 MB)
+    try {
+      const { bfree, bsize } = fs.statfsSync(this.libraryDir);
+      const freeBytes = bfree * bsize;
+      const MIN_FREE  = 150 * 1024 * 1024;
+      if (freeBytes < MIN_FREE) {
+        throw new Error(`Insufficient disk space: ${Math.round(freeBytes / 1024 / 1024)} MB free, need at least 150 MB.`);
+      }
+    } catch (err) {
+      if (err.message.startsWith('Insufficient')) throw err;
+      // statfsSync not available (Node <18 or unsupported FS) — skip check
+      console.warn('[TTSService] Could not check disk space (skipping):', err.message);
     }
 
     console.log('🔊 Initialising number library (1–200)…');
@@ -304,11 +329,11 @@ class TTSService {
           try {
             await this._ttsToWav(`${i}`, rawFile);
             await this._normaliseNumber(rawFile, libFile);
-            try { fs.unlinkSync(rawFile); } catch (_) {}
+            this._safeUnlink(rawFile);
             this.numberLibrary.set(i, libFile);
           } catch (err) {
             console.warn(`⚠️  Number ${i} failed: ${err.message}`);
-            try { fs.unlinkSync(rawFile); } catch (_) {}
+            this._safeUnlink(rawFile);
           }
           completed++;
           if (completed % 40 === 0)
@@ -317,12 +342,19 @@ class TTSService {
       }
     }
 
-    try { fs.writeFileSync(markerFile, this.provider); } catch (_) {}
+    // If resetLibrary() was called while we were building, discard this result.
+    if (this._generationId !== genId) {
+      console.log('[TTSService] Library build was superseded by a reset — discarding.');
+      return;
+    }
+    try { fs.writeFileSync(markerFile, this.provider); }
+    catch (err) { console.warn(`[TTSService] Could not write library marker: ${err.message}`); }
     this.libraryInitialized = true;
     console.log('✅ Number library ready!');
   }
 
   resetLibrary() {
+    this._generationId++;          // invalidates any in-flight initializeNumberLibrary() call
     this.libraryInitialized = false;
     this.numberLibrary.clear();
     this.audioCache.clear();
@@ -383,7 +415,7 @@ class TTSService {
         const introNorm = path.join(this.tempDir, `intro_${ts}.wav`);
         await this._ttsToWavIntro(script, introRaw);
         await this._normaliseWav(introRaw, introNorm);
-        try { fs.unlinkSync(introRaw); } catch (_) {}
+        this._safeUnlink(introRaw);
         parts.push(introNorm);
       }
     }
@@ -404,7 +436,7 @@ class TTSService {
         const seg = path.join(this.tempDir, `seg_${n}_${ts}.wav`);
         await this._ttsToWav(`${n}`, raw);
         await this._normaliseNumber(raw, seg);
-        try { fs.unlinkSync(raw); } catch (_) {}
+        this._safeUnlink(raw);
         parts.push(seg);
       }
     }
@@ -420,7 +452,7 @@ class TTSService {
       const finalNorm = path.join(this.tempDir, `final_${ts}.wav`);
       await this._ttsToWavIntro('Sequence complete.', finalRaw);
       await this._normaliseWav(finalRaw, finalNorm);
-      try { fs.unlinkSync(finalRaw); } catch (_) {}
+      this._safeUnlink(finalRaw);
       parts.push(finalNorm);
     }
 
@@ -433,9 +465,9 @@ class TTSService {
 
     await this._runFfmpeg(['-y', '-f', 'concat', '-safe', '0', '-i', listFile, '-c:a', 'pcm_s16le', '-ar', '48000', '-ac', '2', outputFile]);
 
-    try { fs.unlinkSync(listFile); } catch (_) {}
+    this._safeUnlink(listFile);
     for (const f of parts) {
-      if (new RegExp(`_${ts}\\.wav$`).test(f)) try { fs.unlinkSync(f); } catch (_) {}
+      if (new RegExp(`_${ts}\\.wav$`).test(f)) this._safeUnlink(f);
     }
 
     this.audioCache.set(cacheKey, outputFile);
@@ -453,7 +485,7 @@ class TTSService {
       await new Promise(r => setTimeout(r, 200));
       if (!fs.existsSync(outputFile)) throw new Error('Audio file not created');
       const resource = createAudioResource(outputFile);
-      setTimeout(() => { try { fs.unlinkSync(outputFile); } catch (_) {} }, 15_000);
+      setTimeout(() => this._safeUnlink(outputFile), 15_000);
       return resource;
     } catch (err) {
       console.error('TTS error:', err.message);
@@ -468,10 +500,13 @@ class TTSService {
     try {
       for (const f of fs.readdirSync(this.tempDir)) {
         if (f.startsWith('sync_countdown_') && f.endsWith('.wav')) {
-          try { fs.unlinkSync(path.join(this.tempDir, f)); count++; } catch (_) {}
+          this._safeUnlink(path.join(this.tempDir, f));
+          count++;
         }
       }
-    } catch (_) {}
+    } catch (err) {
+      console.warn('[TTSService] clearCountdownCache error:', err.message);
+    }
     this.audioCache.clear();
     return count;
   }
@@ -481,10 +516,13 @@ class TTSService {
     try {
       for (const f of fs.readdirSync(this.libraryDir)) {
         if (f.endsWith('.wav') || f.startsWith('.provider-')) {
-          try { fs.unlinkSync(path.join(this.libraryDir, f)); count++; } catch (_) {}
+          this._safeUnlink(path.join(this.libraryDir, f));
+          count++;
         }
       }
-    } catch (_) {}
+    } catch (err) {
+      console.warn('[TTSService] clearAllCache error:', err.message);
+    }
     this.numberLibrary.clear();
     this.libraryInitialized = false;
     return count;

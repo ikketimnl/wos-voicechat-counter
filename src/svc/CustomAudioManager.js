@@ -8,6 +8,45 @@ const ALLOWED_EXT      = new Set(['.wav', '.mp3', '.ogg', '.flac', '.aac', '.m4a
 const MAX_FILE_SIZE    = 5 * 1024 * 1024; // 5 MB per file
 
 /**
+ * Validate that a buffer's magic bytes match the declared audio extension.
+ * Returns an error string if the check fails, or null if it passes.
+ */
+function checkMagicBytes(ext, buf) {
+  if (buf.length < 12) return 'File is too small to be a valid audio file.';
+  switch (ext) {
+    case '.wav':
+      // RIFF....WAVE
+      if (buf[0] === 0x52 && buf[1] === 0x49 && buf[2] === 0x46 && buf[3] === 0x46 &&
+          buf[8] === 0x57 && buf[9] === 0x41 && buf[10] === 0x56 && buf[11] === 0x45) return null;
+      return 'File does not appear to be a WAV (missing RIFF/WAVE header).';
+    case '.mp3':
+      // ID3 tag or sync frame (FF FB / FF F3 / FF F2 / FF FA)
+      if (buf[0] === 0x49 && buf[1] === 0x44 && buf[2] === 0x33) return null; // ID3
+      if (buf[0] === 0xFF && (buf[1] & 0xE0) === 0xE0) return null;           // sync frame
+      return 'File does not appear to be an MP3 (missing ID3 tag or sync frame).';
+    case '.ogg':
+      // OggS
+      if (buf[0] === 0x4F && buf[1] === 0x67 && buf[2] === 0x67 && buf[3] === 0x53) return null;
+      return 'File does not appear to be an OGG (missing OggS header).';
+    case '.flac':
+      // fLaC
+      if (buf[0] === 0x66 && buf[1] === 0x4C && buf[2] === 0x61 && buf[3] === 0x43) return null;
+      return 'File does not appear to be a FLAC (missing fLaC header).';
+    case '.aac':
+      // ADTS sync word or ID3
+      if (buf[0] === 0x49 && buf[1] === 0x44 && buf[2] === 0x33) return null; // ID3
+      if (buf[0] === 0xFF && (buf[1] & 0xF0) === 0xF0) return null;           // ADTS
+      return 'File does not appear to be an AAC file.';
+    case '.m4a':
+      // ISO Base Media (ftyp box at offset 4-7)
+      if (buf[4] === 0x66 && buf[5] === 0x74 && buf[6] === 0x79 && buf[7] === 0x70) return null;
+      return 'File does not appear to be an M4A (missing ftyp box).';
+    default:
+      return null; // unknown extension — already blocked by ALLOWED_EXT, skip
+  }
+}
+
+/**
  * Manages user-uploaded audio files for number announcements.
  *
  * Expected file naming: <number>.wav  (e.g. 1.wav, 2.wav … 200.wav)
@@ -95,6 +134,10 @@ class CustomAudioManager {
       return { success: false, error: `File too large (${Math.round(buffer.length / 1024)} KB). Max 5 MB.` };
     }
 
+    // Validate magic bytes so a renamed non-audio file is rejected early.
+    const magicErr = checkMagicBytes(ext, buffer);
+    if (magicErr) return { success: false, error: magicErr };
+
     // Sanitise: only allow numeric names or known specials
     const allowedNames = new Set(['intro', 'complete']);
     const isNumeric    = /^\d+$/.test(base);
@@ -135,7 +178,8 @@ class CustomAudioManager {
     for (const f of fs.readdirSync(CUSTOM_AUDIO_DIR)) {
       const ext = path.extname(f).toLowerCase();
       if (!ALLOWED_EXT.has(ext)) continue;
-      try { fs.unlinkSync(path.join(CUSTOM_AUDIO_DIR, f)); count++; } catch (_) {}
+      try { fs.unlinkSync(path.join(CUSTOM_AUDIO_DIR, f)); count++; }
+      catch (err) { if (err.code !== 'ENOENT') console.warn(`[CustomAudio] Failed to delete ${f}: ${err.message}`); }
     }
     return count;
   }

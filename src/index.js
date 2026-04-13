@@ -5,14 +5,33 @@ const path = require('path');
 const fs   = require('fs');
 
 // ── Config loading ─────────────────────────────────────────────────────────
+// Env vars take precedence over config.json so Docker/CI deployments can pass
+// credentials without writing a config file.
+let config = {};
 const configPath = path.join(__dirname, '../config/config.json');
-if (!fs.existsSync(configPath)) {
-  console.error('❌ config/config.json not found. Run: node src/setup.js');
+if (fs.existsSync(configPath)) {
+  try { config = JSON.parse(fs.readFileSync(configPath, 'utf8')); }
+  catch (err) { console.error(`❌ Failed to parse config/config.json: ${err.message}`); process.exit(1); }
+}
+const token    = process.env.DISCORD_TOKEN    || config.token;
+const clientId = process.env.DISCORD_CLIENT_ID || config.clientId;
+const guildId  = process.env.DISCORD_GUILD_ID  || config.guildId;
+
+if (!token || !clientId || !guildId) {
+  console.error(
+    '❌ Missing Discord credentials.\n' +
+    '   Provide DISCORD_TOKEN, DISCORD_CLIENT_ID, DISCORD_GUILD_ID env vars,\n' +
+    '   or run: node src/setup.js to create config/config.json',
+  );
   process.exit(1);
 }
-const config = require(configPath);
-if (!config.token || !config.clientId || !config.guildId) {
-  console.error('❌ config/config.json is incomplete. Run: node src/setup.js');
+// Merge resolved values back so downstream code (CommandHandler) can still read config.token etc.
+config = { ...config, token, clientId, guildId };
+
+// ── FFmpeg validation ──────────────────────────────────────────────────────
+const ffmpegPath = require('ffmpeg-static');
+if (!ffmpegPath || !fs.existsSync(ffmpegPath)) {
+  console.error('❌ ffmpeg binary not found. The ffmpeg-static package may be corrupt — try: npm ci');
   process.exit(1);
 }
 
@@ -75,7 +94,7 @@ process.on('SIGINT',  shutdown);
 process.on('SIGTERM', shutdown);
 
 // ── Login ──────────────────────────────────────────────────────────────────
-client.login(config.token).catch((err) => {
+client.login(token).catch((err) => {
   console.error('❌ Login failed:', err.message);
   process.exit(1);
 });

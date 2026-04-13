@@ -3,7 +3,7 @@
 const fs   = require('fs');
 const path = require('path');
 
-const PLAYERS_FILE = path.join(__dirname, '../../config/players.json');
+const PLAYERS_FILE = process.env.WOS_PLAYERS_FILE || path.join(__dirname, '../../config/players.json');
 
 class PlayerManager {
   constructor() {

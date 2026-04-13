@@ -10,7 +10,7 @@ const path = require('path');
  */
 class BotSettings {
   constructor() {
-    this.settingsPath = path.join(__dirname, '../../config/settings.json');
+    this.settingsPath = process.env.WOS_SETTINGS_FILE || path.join(__dirname, '../../config/settings.json');
     this._ensureDir();
     this._settings = this._load();
   }
@@ -24,8 +24,8 @@ class BotSettings {
       introEnabled:     true,         // play rally intro before countdown
       introSpeed:       'normal',    // normal | slower | slow
       customAudioDir:   null,         // path to user-supplied WAV files (null = use TTS)
-      voiceRate:        170,          // words-per-minute hint for macOS say
-      piperModel:       '/usr/local/bin/voices/en_US-lessac-medium.onnx', // Piper ONNX model path
+      voiceRate:        170,          // words-per-minute for macOS `say` command only (use /settings to adjust via BotSettings.set('voiceRate', N))
+      piperModel:       process.env.PIPER_MODEL || '/usr/local/bin/voices/en_US-lessac-medium.onnx', // Piper ONNX model path (overridden by PIPER_MODEL env var in yolk/Pterodactyl images)
       version:          null,         // set after first run by UpdateManager
     };
   }
