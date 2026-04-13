@@ -392,8 +392,12 @@ class TTSService {
     const cachedPath = this.audioCache.get(cacheKey);
     if (cachedPath && fs.existsSync(cachedPath)) return createAudioResource(cachedPath);
 
-    const ts    = Date.now();
-    const parts = [];
+    const ts      = Date.now();
+    const parts   = [];
+
+    // Computed here so both the intro and the sequence block can use them.
+    const maxTime  = Math.max(...players.map(p => p.attackStartTime));
+    const countDir = this.settings.countDirection;
 
     // ── Intro ─────────────────────────────────────────────────────────────────
     if (this.settings.introEnabled) {
@@ -406,9 +410,21 @@ class TTSService {
         const first  = players.find(p => p.attackStartTime === 0) ?? players[0];
         let script   = `Synchronized attack sequence.  ${first.name} starts first.  `;
         players.forEach(p => {
-          script += p.attackStartTime === 0
-            ? `${p.name} starts immediately after the countdown.  `
-            : `${p.name} starts at second ${p.attackStartTime}.  `;
+          if (p.attackStartTime === 0) {
+            script += `${p.name} starts immediately after the countdown.  `;
+          } else if (countDir === 'down') {
+            // Count-down sequence is [maxTime, maxTime-1, ..., 1].
+            // At elapsed second T the countdown says (maxTime - T), so the
+            // number a player should listen for is (maxTime - attackStartTime).
+            const triggerNum = maxTime - p.attackStartTime;
+            script += triggerNum > 0
+              ? `${p.name} starts when you hear ${triggerNum}.  `
+              : `${p.name} starts when the countdown ends.  `;
+          } else {
+            // Count-up sequence is [1, 2, ..., maxTime].  At elapsed second T
+            // the countdown says T, so attackStartTime is the number to listen for.
+            script += `${p.name} starts at second ${p.attackStartTime}.  `;
+          }
         });
         script += `${first.name}, get ready.  Three. Two. One. Go.  `;
         const introRaw  = path.join(this.tempDir, `intro_raw_${ts}.wav`);
@@ -421,8 +437,6 @@ class TTSService {
     }
 
     // ── Count sequence ─────────────────────────────────────────────────────────
-    const maxTime  = Math.max(...players.map(p => p.attackStartTime));
-    const countDir = this.settings.countDirection;
     const sequence = countDir === 'up'
       ? Array.from({ length: maxTime }, (_, i) => i + 1)
       : Array.from({ length: maxTime }, (_, i) => maxTime - i);
