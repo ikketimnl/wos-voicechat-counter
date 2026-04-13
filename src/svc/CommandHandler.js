@@ -295,7 +295,10 @@ class CommandHandler {
 
     // Process Delete
     if (id === 'audio_do_delete') {
-      this.customAudio.deleteFile(interaction.values[0]);
+      const delResult = this.customAudio.deleteFile(interaction.values[0]);
+      if (!delResult.success) {
+        return interaction.update({ content: `❌ Could not delete file: ${delResult.error}`, components: [] });
+      }
       this.client.voiceManager.getTTSService().resetLibrary();
       return interaction.update({ content: `🗑️ Deleted \`${interaction.values[0]}\`.`, components: [] });
     }
@@ -319,7 +322,7 @@ class CommandHandler {
       this.client.voiceManager.getTTSService().resetLibrary();
       return interaction.update({ content: `🔥 Successfully deleted **${n}** custom audio files.`, components: [] });
     }
-    if (id === 'audio_ui_clear_cancel') {await interaction.deferUpdate(); return interaction.deleteReply();}
+    if (id === 'audio_ui_clear_cancel') { await interaction.deferUpdate(); return interaction.deleteReply().catch(() => {}); }
 
     // List Files
     if (id === 'audio_ui_list') return this._audioList(interaction);
