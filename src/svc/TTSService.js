@@ -37,6 +37,7 @@ class TTSService {
     this.numberLibrary      = new Map();
     this.libraryInitialized = false;
     this._generationId      = 0;   // incremented by resetLibrary() to cancel in-flight builds
+    this._buildingLibrary   = false; // prevents concurrent initializeNumberLibrary() calls
     this.platform           = process.platform;
     this.windowsVoice       = null;
     this._cleanTempDir();
@@ -264,6 +265,16 @@ class TTSService {
   }
 
   async initializeNumberLibrary() {
+    if (this._buildingLibrary) return; // already in progress — skip concurrent call
+    this._buildingLibrary = true;
+    try {
+      await this._doInitializeNumberLibrary();
+    } finally {
+      this._buildingLibrary = false;
+    }
+  }
+
+  async _doInitializeNumberLibrary() {
     const genId      = this._generationId; // snapshot — if resetLibrary() is called mid-build we abort
     const markerFile = path.join(this.libraryDir, this._libraryCacheKey());
     const existingMarkers = fs.readdirSync(this.libraryDir).filter(f => f.startsWith('.provider-'));

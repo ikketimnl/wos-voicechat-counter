@@ -979,11 +979,23 @@ class CommandHandler {
   // ── Helper: download attachment buffer ──────────────────────────────────────
 
   _downloadBuffer(url) {
+    const MAX_DOWNLOAD = 10 * 1024 * 1024; // 10 MB hard cap
     return new Promise((resolve, reject) => {
       const req = https.get(url, (res) => {
-        if (res.statusCode !== 200) return reject(new Error(`HTTP ${res.statusCode}`));
+        if (res.statusCode !== 200) {
+          res.destroy();
+          return reject(new Error(`HTTP ${res.statusCode}`));
+        }
         const chunks = [];
-        res.on('data',  c  => chunks.push(c));
+        let totalSize = 0;
+        res.on('data', (c) => {
+          totalSize += c.length;
+          if (totalSize > MAX_DOWNLOAD) {
+            res.destroy();
+            return reject(new Error('Attachment too large to download'));
+          }
+          chunks.push(c);
+        });
         res.on('end',   () => resolve(Buffer.concat(chunks)));
         res.on('error', reject);
       });

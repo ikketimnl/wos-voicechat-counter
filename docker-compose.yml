@@ -1,7 +1,10 @@
 services:
   counterbot-vc:
-    build:
-      context: .
+    # Pre-built image from GitHub Container Registry (updated on every push to main).
+    # To build locally from source instead, replace this with:
+    #   build:
+    #     context: .
+    image: ghcr.io/ikketimnl/wos-voicechat-counter:latest
     container_name: counterbot-vc
     restart: unless-stopped
 

@@ -53,8 +53,8 @@ class PlayerManager {
   // ── Write methods ──────────────────────────────────────────────────────────
 
   registerPlayer(playerName, timeToDestination, attackGroup = 1) {
-    if (timeToDestination <= 0) throw new Error('Time to destination must be greater than 0');
-    if (attackGroup <= 0)       throw new Error('Attack group must be greater than 0');
+    if (timeToDestination <= 0)  throw new Error('Time to destination must be greater than 0');
+    if (attackGroup <= 0 || attackGroup > 99) throw new Error('Attack group must be between 1 and 99');
 
     this.players.set(playerName, {
       name: playerName,
@@ -69,8 +69,8 @@ class PlayerManager {
   updatePlayer(playerName, newTimeToDestination, newAttackGroup = null) {
     if (!this.players.has(playerName)) throw new Error(`Player ${playerName} not found`);
     if (newTimeToDestination <= 0)     throw new Error('Time to destination must be greater than 0');
-    if (newAttackGroup !== null && newAttackGroup <= 0)
-      throw new Error('Attack group must be greater than 0');
+    if (newAttackGroup !== null && (newAttackGroup <= 0 || newAttackGroup > 99))
+      throw new Error('Attack group must be between 1 and 99');
 
     const player = this.players.get(playerName);
     player.timeToDestination = newTimeToDestination;

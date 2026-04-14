@@ -192,7 +192,7 @@ echo echo.
 echo echo Starting WoS VoiceChat Counter...
 echo echo Press Ctrl+C to stop.
 echo echo.
-echo node index.js
+echo npm start
 echo pause
 ) > start.bat
 echo %GREEN% start.bat created. %RESET%
@@ -204,8 +204,8 @@ echo %BLUE% Creating stop.bat ... %RESET%
 (
 echo @echo off
 echo echo Stopping WoS VoiceChat Counter...
-echo taskkill /f /im node.exe /fi "WINDOWTITLE eq WoS*" >nul 2>^&1
-echo taskkill /f /im node.exe >nul 2>^&1
+echo taskkill /f /im node.exe /fi "WINDOWTITLE eq WoS VoiceChat Counter*" >nul 2>^&1
+echo taskkill /f /im node.exe /fi "WINDOWTITLE eq npm*" >nul 2>^&1
 echo echo Done.
 echo pause
 ) > stop.bat

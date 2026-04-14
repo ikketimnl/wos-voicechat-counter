@@ -21,6 +21,9 @@
   "devDependencies": {
     "nodemon": "^3.1.7"
   },
+  "overrides": {
+    "tar": "^7.5.13"
+  },
   "engines": {
     "node": ">=18.0.0"
   },
