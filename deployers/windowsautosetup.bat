@@ -52,32 +52,35 @@ for /f "tokens=1 delims=." %%a in ('node --version') do set "NODE_VER_RAW=%%a"
 set "NODE_MAJOR=%NODE_VER_RAW:~1%"
 echo %BLUE% Detected Node.js major version: %NODE_MAJOR% %RESET%
 
-if %NODE_MAJOR% EQU 22 (
+:: FLATTENED LOGIC: Prevents block-breaking parenthesis crashes
+if "%NODE_MAJOR%"=="22" (
     echo %GREEN% Node.js v22 detected. Proceeding... %RESET%
     goto :clone_repo
 )
 
-if %NODE_MAJOR% GTR 22 (
-    echo.
-    echo %RED% The bot is made based on Node.js v22 and it is recommended to use this version. %RESET%
-    echo %RED% Newer versions ^(v%NODE_MAJOR%^) might cause unexpected errors as they are not fully tested. %RESET%
-    set /p downgrade="%MAGENTA%Do you want to downgrade to Node.js v22 now? (Y/N): %RESET%"
-    
-    if /i "!downgrade!"=="Y" (
-        goto :uninstall_and_downgrade
-    ) else (
-        echo %GREEN% Proceeding with Node.js v%NODE_MAJOR% at your own risk... %RESET%
-        goto :clone_repo
-    )
-)
+if %NODE_MAJOR% LSS 22 goto :force_upgrade
 
+:: If we reach this line, Node is version 23+
+echo.
+echo %RED% The bot is made based on Node.js v22 and it is recommended to use this version. %RESET%
+echo %RED% Newer versions ^(v%NODE_MAJOR%^) might cause unexpected errors as they are not fully tested. %RESET%
+
+set "downgrade=N"
+set /p downgrade="%MAGENTA%Do you want to downgrade to Node.js v22 now? (Y/N): %RESET%"
+
+if /i "!downgrade!"=="Y" goto :uninstall_and_downgrade
+
+echo %GREEN% Proceeding with Node.js v%NODE_MAJOR% at your own risk... %RESET%
+goto :clone_repo
+
+:force_upgrade
 echo %RED% Node.js v%NODE_MAJOR% detected but v22 is required. Upgrading... %RESET%
 goto :install_node
 
 :uninstall_and_downgrade
 echo %BLUE% Uninstalling current Node.js version... (This may take a minute) %RESET%
-powershell -NoProfile -Command "$app = Get-ItemProperty HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\* | Where-Object { $_.DisplayName -like 'Node.js*' }; if ($app) { $uninstall = $app.UninstallString -replace '/I', '/X'; Start-Process cmd.exe -ArgumentList \"/c $uninstall /qn /norestart\" -Wait -NoNewWindow }"
-:: Brief pause to ensure Windows releases registry locks before reinstalling
+:: FIX: Rewritten PowerShell command to prevent CMD quote-parsing crashes
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$app = Get-ItemProperty HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\* | Where-Object { $_.DisplayName -match 'Node.js' }; if ($app) { $u = $app.UninstallString -replace '/I', '/X'; $a = '/c ' + $u + ' /qn /norestart'; Start-Process cmd.exe -ArgumentList $a -Wait -NoNewWindow }"
 timeout /t 3 >nul
 
 :install_node
@@ -141,7 +144,7 @@ if %errorLevel% neq 0 (
 echo %GREEN% Dependencies installed. %RESET%
 
 :: ----------------------------------------
-:: Collect Discord credentials and write config
+:: Collect Discord credentials
 :: ----------------------------------------
 cls
 echo.
@@ -149,13 +152,21 @@ echo %MAGENTA% ==============================
 echo  Discord Configuration
 echo  ==============================%RESET%
 echo.
+
+if not exist config mkdir config
+
+if exist config\config.json (
+    echo %GREEN% Existing config.json detected! %RESET%
+    set "keepConfig=Y"
+    set /p keepConfig="%MAGENTA%Do you want to keep your existing Discord Bot credentials? (Y/N): %RESET%"
+    if /i "!keepConfig!"=="Y" goto :tts_menu
+)
+
 echo %BLUE% You need three values from the Discord Developer Portal:
 echo   - Bot Token       (Bot page ^> Token ^> Reset Token)
 echo   - Application ID  (General Information ^> Application ID)
 echo   - Server ID       (Right-click your server ^> Copy Server ID)%RESET%
 echo.
-
-if not exist config mkdir config
 
 set /p token="%GREEN%Enter your Discord Bot Token: %RESET%"
 set /p clientId="%GREEN%Enter your Application ID:   %RESET%"
@@ -163,7 +174,6 @@ set /p guildId="%GREEN%Enter your Server ID:         %RESET%"
 
 echo.
 echo %BLUE% Writing config\config.json ... %RESET%
-
 (
 echo {
 echo   "token": "%token%",
@@ -171,7 +181,7 @@ echo   "clientId": "%clientId%",
 echo   "guildId": "%guildId%"
 echo }
 ) > config\config.json
-echo %GREEN% config\config.json created. %RESET%
+echo %GREEN% config\config.json saved. %RESET%
 
 :: ----------------------------------------
 :: Interactive TTS Configuration
@@ -188,13 +198,9 @@ echo   3. festival - Festival TTS (not compatible with Windows)
 echo   4. piper    - Piper neural TTS (natural, auto-installs models)
 echo   5. console  - No audio, log-only (testing)
 
-:: Clear the variable so hitting Enter empty defaults safely
 set "ttsChoice=1"
 set /p ttsChoice="%GREEN%Select provider (1-5, default 1): %RESET%"
 
-:: ----------------------------------------
-:: SAFETY NET: Input Validation
-:: ----------------------------------------
 set "validChoice=false"
 if "!ttsChoice!"=="1" set "validChoice=true"
 if "!ttsChoice!"=="2" set "validChoice=true"
@@ -210,9 +216,6 @@ if "!validChoice!"=="false" (
     goto :tts_menu
 )
 
-:: ----------------------------------------
-:: Process Validated Selection
-:: ----------------------------------------
 set "ttsProvider=local"
 
 if "!ttsChoice!"=="2" (
@@ -234,21 +237,27 @@ if "!ttsChoice!"=="4" (
 )
 if "!ttsChoice!"=="5" set "ttsProvider=console"
 
-:: Write settings.json dynamically based on choice
-echo %BLUE% Writing config\settings.json ... %RESET%
-(
-echo {
-echo   "ttsProvider": "%ttsProvider%",
-echo   "countDirection": "down",
-echo   "introEnabled": true,
-echo   "introSpeed": "normal",
-echo   "voiceRate": 170,
-echo   "piperModel": "C:\\Program Files\\piper\\voices\\en_US-lessac-medium.onnx",
-echo   "customAudioDir": null,
-echo   "version": null
-echo }
-) > config\settings.json
-echo %GREEN% config\settings.json created. %RESET%
+:: Smart update of settings.json using PowerShell
+echo.
+echo %BLUE% Updating config\settings.json ... %RESET%
+if exist "config\settings.json" (
+    powershell -NoProfile -Command "$file = 'config\settings.json'; $json = Get-Content $file -Raw | ConvertFrom-Json; $json.ttsProvider = '%ttsProvider%'; $json.piperModel = 'C:/Program Files/piper/voices/en_US-lessac-medium.onnx'; $json | ConvertTo-Json -Depth 10 | Set-Content $file"
+    echo %GREEN% config\settings.json successfully updated! ^(Your previous settings were preserved^) %RESET%
+) else (
+    (
+    echo {
+    echo   "ttsProvider": "%ttsProvider%",
+    echo   "countDirection": "down",
+    echo   "introEnabled": true,
+    echo   "introSpeed": "normal",
+    echo   "voiceRate": 170,
+    echo   "piperModel": "C:/Program Files/piper/voices/en_US-lessac-medium.onnx",
+    echo   "customAudioDir": null,
+    echo   "version": null
+    echo }
+    ) > config\settings.json
+    echo %GREEN% config\settings.json created. %RESET%
+)
 
 if not exist config\custom_audio mkdir config\custom_audio
 
@@ -264,6 +273,8 @@ echo echo.
 echo echo Starting WoS VoiceChat Counter...
 echo echo Press Ctrl+C to stop.
 echo echo.
+echo :: Load environments for active session
+echo set "PATH=%%PATH%%;C:\Program Files\piper;C:\Program Files\eSpeak NG"
 echo node index.js
 echo pause
 ) > start.bat
@@ -291,7 +302,10 @@ echo %MAGENTA% ==============================
 echo  Setup complete!
 echo  ==============================%RESET%
 echo.
-echo %GREEN% The bot is installed in: %CD% %RESET%
+echo %GREEN% The bot is configured in: %CD% %RESET%
+echo.
+echo %RED% IMPORTANT: If your bot is currently running, you MUST RESTART IT %RESET%
+echo %RED% by using stop.bat and then start.bat for the new TTS settings to apply! %RESET%
 echo.
 echo %BLUE% To start the bot:    double-click start.bat%RESET%
 echo %BLUE% To stop the bot:     double-click stop.bat%RESET%
@@ -311,9 +325,15 @@ echo.
 echo %MAGENTA% Installing eSpeak NG via WinGet... %RESET%
 winget install -e --id eSpeak-NG.eSpeak-NG --accept-source-agreements --accept-package-agreements
 if %errorlevel% neq 0 (
-    echo %RED% eSpeak NG installation failed. You may need to download the .msi manually from GitHub. %RESET%
+    echo %RED% eSpeak NG installation failed. You may need to download the .msi manually. %RESET%
 ) else (
-    echo %GREEN% eSpeak NG successfully installed! %RESET%
+    :: Safely add to Windows System PATH
+    echo %BLUE% Adding eSpeak NG to system PATH safely... %RESET%
+    powershell -NoProfile -ExecutionPolicy Bypass -Command "$path = [Environment]::GetEnvironmentVariable('PATH', 'Machine'); if ($path -notmatch '[regex]::Escape(''C:\Program Files\eSpeak NG'')') { [Environment]::SetEnvironmentVariable('PATH', $path + ';C:\Program Files\eSpeak NG', 'Machine') }"
+    
+    :: Inject into current session memory
+    set "PATH=%PATH%;C:\Program Files\eSpeak NG"
+    echo %GREEN% eSpeak NG successfully installed and configured! %RESET%
 )
 goto :EOF
 
@@ -330,7 +350,6 @@ if exist "C:\Program Files\piper\piper.exe" (
 echo %BLUE% Downloading Piper Windows Executable... %RESET%
 curl -L --progress-bar -o "%TEMP%\piper.zip" "https://github.com/rhasspy/piper/releases/download/2023.11.14-2/piper_windows_amd64.zip"
 
-:: FIX: Removed the trailing backslash so Windows parses the target directory correctly
 echo %BLUE% Extracting Piper to C:\Program Files\piper ... %RESET%
 tar -xf "%TEMP%\piper.zip" -C "C:\Program Files"
 del "%TEMP%\piper.zip" >nul 2>&1
@@ -344,9 +363,11 @@ curl -L --progress-bar -o "C:\Program Files\piper\voices\en_US-lessac-medium.onn
 echo %BLUE% Downloading voice model JSON config... %RESET%
 curl -L --progress-bar -o "C:\Program Files\piper\voices\en_US-lessac-medium.onnx.json" "https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/en/en_US/lessac/medium/en_US-lessac-medium.onnx.json"
 
-:: Safely append to system PATH using PowerShell to prevent the setx 1024-character truncation bug
+:: Safely add to Windows System PATH
 echo %BLUE% Adding Piper to system PATH safely... %RESET%
 powershell -NoProfile -ExecutionPolicy Bypass -Command "$path = [Environment]::GetEnvironmentVariable('PATH', 'Machine'); if ($path -notmatch '[regex]::Escape(''C:\Program Files\piper'')') { [Environment]::SetEnvironmentVariable('PATH', $path + ';C:\Program Files\piper', 'Machine') }"
 
-echo %GREEN% Piper TTS successfully installed! %RESET%
+:: Inject into current session memory
+set "PATH=%PATH%;C:\Program Files\piper"
+echo %GREEN% Piper TTS successfully installed and configured! %RESET%
 goto :EOF
