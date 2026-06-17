@@ -1,5 +1,8 @@
 @echo off
-setlocal
+setlocal EnableDelayedExpansion
+
+:: Prevent spawnSync EINVAL errors by explicitly setting COMSPEC
+if "%COMSPEC%"=="" set "COMSPEC=C:\WINDOWS\system32\cmd.exe"
 
 :: Force elevation — UAC prompt if not already admin
 net session >nul 2>&1
@@ -20,20 +23,21 @@ set "RESET=%ESC%[0m"
 
 echo %MAGENTA%==============================
 echo  WoS VoiceChat Counter
-echo  Windows Setup
+echo  Windows Setup Wizard
 echo ==============================%RESET%
 echo.
 echo %BLUE% This script will:
-echo   1. Install Node.js v22 if needed
+echo   1. Verify Node.js v22 is installed
 echo   2. Clone the bot from GitHub
 echo   3. Install dependencies
 echo   4. Collect your Discord credentials
-echo   5. Create start.bat and stop.bat %RESET%
+echo   5. Configure your TTS Engine and download models
+echo   6. Create start.bat and stop.bat %RESET%
 echo.
 timeout /t 3 /nobreak >nul
 
 :: ----------------------------------------
-:: Node.js v22 check and install
+:: Node.js Version Check & Downgrade Logic
 :: ----------------------------------------
 echo.
 echo %BLUE% Checking Node.js version... %RESET%
@@ -48,12 +52,33 @@ for /f "tokens=1 delims=." %%a in ('node --version') do set "NODE_VER_RAW=%%a"
 set "NODE_MAJOR=%NODE_VER_RAW:~1%"
 echo %BLUE% Detected Node.js major version: %NODE_MAJOR% %RESET%
 
-if "%NODE_MAJOR%"=="22" (
-    echo %GREEN% Node.js v22 already installed. %RESET%
+if %NODE_MAJOR% EQU 22 (
+    echo %GREEN% Node.js v22 detected. Proceeding... %RESET%
     goto :clone_repo
 )
 
+if %NODE_MAJOR% GTR 22 (
+    echo.
+    echo %RED% The bot is made based on Node.js v22 and it is recommended to use this version. %RESET%
+    echo %RED% Newer versions ^(v%NODE_MAJOR%^) might cause unexpected errors as they are not fully tested. %RESET%
+    set /p downgrade="%MAGENTA%Do you want to downgrade to Node.js v22 now? (Y/N): %RESET%"
+    
+    if /i "!downgrade!"=="Y" (
+        goto :uninstall_and_downgrade
+    ) else (
+        echo %GREEN% Proceeding with Node.js v%NODE_MAJOR% at your own risk... %RESET%
+        goto :clone_repo
+    )
+)
+
 echo %RED% Node.js v%NODE_MAJOR% detected but v22 is required. Upgrading... %RESET%
+goto :install_node
+
+:uninstall_and_downgrade
+echo %BLUE% Uninstalling current Node.js version... (This may take a minute) %RESET%
+powershell -NoProfile -Command "$app = Get-ItemProperty HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\* | Where-Object { $_.DisplayName -like 'Node.js*' }; if ($app) { $uninstall = $app.UninstallString -replace '/I', '/X'; Start-Process cmd.exe -ArgumentList \"/c $uninstall /qn /norestart\" -Wait -NoNewWindow }"
+:: Brief pause to ensure Windows releases registry locks before reinstalling
+timeout /t 3 >nul
 
 :install_node
 echo %BLUE% Downloading Node.js v22.14.0... %RESET%
@@ -73,17 +98,11 @@ if %errorlevel% neq 0 (
 )
 del "%TEMP%\node-installer.msi" >nul 2>&1
 
-:: Refresh PATH so node is available in this session
-set "PATH=%PATH%;C:\Program Files\nodejs"
-
-node --version >nul 2>&1
-if %errorlevel% neq 0 (
-    echo %RED% Node.js installed but PATH not updated yet. %RESET%
-    echo %BLUE% Please close this window and re-run the script. %RESET%
-    pause
-    exit /b 0
-)
 echo %GREEN% Node.js v22 installed successfully! %RESET%
+echo %RED% IMPORTANT: You must restart this script for the new environment variables to apply. %RESET%
+echo %BLUE% Closing in 5 seconds... Please double-click the setup file again. %RESET%
+timeout /t 5 >nul
+exit /b 0
 
 :: ----------------------------------------
 :: Clone the repository
@@ -93,10 +112,9 @@ echo.
 echo %BLUE% Checking for Git... %RESET%
 git --version >nul 2>&1
 if %errorlevel% neq 0 (
-    echo %BLUE% Git not found. Installing via winget... %RESET%
-    winget install -e --id Git.Git --accept-package-agreements --accept-source-agreements
-    :: Refresh PATH
-    set "PATH=%PATH%;C:\Program Files\Git\cmd"
+    echo %RED% Git not found. Please install Git manually from https://git-scm.com/ and re-run. %RESET%
+    pause
+    exit /b 1
 )
 
 echo %BLUE% Cloning bot repository... %RESET%
@@ -114,7 +132,7 @@ if exist counterbotVC (
 :: ----------------------------------------
 echo.
 echo %BLUE% Installing dependencies... %RESET%
-npm install --no-audit --no-fund
+call npm install --no-audit --no-fund
 if %errorLevel% neq 0 (
     echo %RED% npm install failed. Check your internet connection and try again. %RESET%
     pause
@@ -136,14 +154,12 @@ echo   - Bot Token       (Bot page ^> Token ^> Reset Token)
 echo   - Application ID  (General Information ^> Application ID)
 echo   - Server ID       (Right-click your server ^> Copy Server ID)%RESET%
 echo.
-echo %RED% CLICK ON THIS WINDOW BEFORE TYPING! %RESET%
-echo.
 
 if not exist config mkdir config
 
-set /p token=%GREEN%Enter your Discord Bot Token: %RESET%
-set /p clientId=%GREEN%Enter your Application ID:   %RESET%
-set /p guildId=%GREEN%Enter your Server ID:         %RESET%
+set /p token="%GREEN%Enter your Discord Bot Token: %RESET%"
+set /p clientId="%GREEN%Enter your Application ID:   %RESET%"
+set /p guildId="%GREEN%Enter your Server ID:         %RESET%"
 
 echo.
 echo %BLUE% Writing config\config.json ... %RESET%
@@ -155,28 +171,84 @@ echo   "clientId": "%clientId%",
 echo   "guildId": "%guildId%"
 echo }
 ) > config\config.json
-
 echo %GREEN% config\config.json created. %RESET%
 
 :: ----------------------------------------
-:: Write default settings.json if absent
+:: Interactive TTS Configuration
 :: ----------------------------------------
-if not exist config\settings.json (
-    echo %BLUE% Writing default config\settings.json ... %RESET%
-    (
-    echo {
-    echo   "ttsProvider": "local",
-    echo   "countDirection": "down",
-    echo   "introEnabled": true,
-    echo   "introSpeed": "normal",
-    echo   "voiceRate": 170,
-    echo   "piperModel": "C:\\Program Files\\piper\\voices\\en_US-lessac-medium.onnx",
-    echo   "customAudioDir": null,
-    echo   "version": null
-    echo }
-    ) > config\settings.json
-    echo %GREEN% config\settings.json created with defaults. %RESET%
+:tts_menu
+echo.
+echo %MAGENTA% ==============================
+echo  TTS Configuration
+echo  ==============================%RESET%
+echo %BLUE% Choose your default TTS Engine:%RESET%
+echo   1. local    - Auto-detect (Windows SAPI/say/espeak) [recommended]
+echo   2. espeak   - eSpeak NG (fast, robotic - auto-installs via winget)
+echo   3. festival - Festival TTS (not compatible with Windows)
+echo   4. piper    - Piper neural TTS (natural, auto-installs models)
+echo   5. console  - No audio, log-only (testing)
+
+:: Clear the variable so hitting Enter empty defaults safely
+set "ttsChoice=1"
+set /p ttsChoice="%GREEN%Select provider (1-5, default 1): %RESET%"
+
+:: ----------------------------------------
+:: SAFETY NET: Input Validation
+:: ----------------------------------------
+set "validChoice=false"
+if "!ttsChoice!"=="1" set "validChoice=true"
+if "!ttsChoice!"=="2" set "validChoice=true"
+if "!ttsChoice!"=="3" set "validChoice=true"
+if "!ttsChoice!"=="4" set "validChoice=true"
+if "!ttsChoice!"=="5" set "validChoice=true"
+
+if "!validChoice!"=="false" (
+    echo.
+    echo %RED% ERROR: Invalid selection '!ttsChoice!'. Please enter a number from 1 to 5. %RESET%
+    timeout /t 3 >nul
+    cls
+    goto :tts_menu
 )
+
+:: ----------------------------------------
+:: Process Validated Selection
+:: ----------------------------------------
+set "ttsProvider=local"
+
+if "!ttsChoice!"=="2" (
+    set "ttsProvider=espeak"
+    call :install_espeak
+)
+if "!ttsChoice!"=="3" (
+    echo.
+    echo %RED% ERROR: Festival TTS is not compatible with standard Windows systems. %RESET%
+    echo %RED% It requires manual compilation from source or a native Linux context ^(WSL^). %RESET%
+    echo %BLUE% Please select a compatible engine from the menu instead. %RESET%
+    timeout /t 5 >nul
+    cls
+    goto :tts_menu
+)
+if "!ttsChoice!"=="4" (
+    set "ttsProvider=piper"
+    call :install_piper
+)
+if "!ttsChoice!"=="5" set "ttsProvider=console"
+
+:: Write settings.json dynamically based on choice
+echo %BLUE% Writing config\settings.json ... %RESET%
+(
+echo {
+echo   "ttsProvider": "%ttsProvider%",
+echo   "countDirection": "down",
+echo   "introEnabled": true,
+echo   "introSpeed": "normal",
+echo   "voiceRate": 170,
+echo   "piperModel": "C:\\Program Files\\piper\\voices\\en_US-lessac-medium.onnx",
+echo   "customAudioDir": null,
+echo   "version": null
+echo }
+) > config\settings.json
+echo %GREEN% config\settings.json created. %RESET%
 
 if not exist config\custom_audio mkdir config\custom_audio
 
@@ -192,13 +264,13 @@ echo echo.
 echo echo Starting WoS VoiceChat Counter...
 echo echo Press Ctrl+C to stop.
 echo echo.
-echo npm start
+echo node index.js
 echo pause
 ) > start.bat
 echo %GREEN% start.bat created. %RESET%
 
 :: ----------------------------------------
-:: Create stop.bat  (sends Ctrl+C to any node index.js process)
+:: Create stop.bat 
 :: ----------------------------------------
 echo %BLUE% Creating stop.bat ... %RESET%
 (
@@ -225,9 +297,56 @@ echo %BLUE% To start the bot:    double-click start.bat%RESET%
 echo %BLUE% To stop the bot:     double-click stop.bat%RESET%
 echo %BLUE% To change settings:  use /settings in Discord%RESET%
 echo.
-echo %BLUE% First-time startup will generate TTS audio files (1-200).
-echo This takes a few minutes and is cached for future runs.%RESET%
-echo.
 pause
 
 endlocal
+exit /b 0
+
+:: ========================================
+:: SUBROUTINES
+:: ========================================
+
+:install_espeak
+echo.
+echo %MAGENTA% Installing eSpeak NG via WinGet... %RESET%
+winget install -e --id eSpeak-NG.eSpeak-NG --accept-source-agreements --accept-package-agreements
+if %errorlevel% neq 0 (
+    echo %RED% eSpeak NG installation failed. You may need to download the .msi manually from GitHub. %RESET%
+) else (
+    echo %GREEN% eSpeak NG successfully installed! %RESET%
+)
+goto :EOF
+
+:install_piper
+echo.
+echo %MAGENTA% Downloading and Installing Piper TTS... %RESET%
+
+if exist "C:\Program Files\piper\piper.exe" (
+    echo %GREEN% Piper is already installed! Skipping download... %RESET%
+    goto :EOF
+)
+
+:: Download and extract Piper executable
+echo %BLUE% Downloading Piper Windows Executable... %RESET%
+curl -L --progress-bar -o "%TEMP%\piper.zip" "https://github.com/rhasspy/piper/releases/download/2023.11.14-2/piper_windows_amd64.zip"
+
+:: FIX: Removed the trailing backslash so Windows parses the target directory correctly
+echo %BLUE% Extracting Piper to C:\Program Files\piper ... %RESET%
+tar -xf "%TEMP%\piper.zip" -C "C:\Program Files"
+del "%TEMP%\piper.zip" >nul 2>&1
+
+:: Create voices folder and download models
+if not exist "C:\Program Files\piper\voices" mkdir "C:\Program Files\piper\voices"
+
+echo %BLUE% Downloading voice model ^(en_US-lessac-medium.onnx^)... %RESET%
+curl -L --progress-bar -o "C:\Program Files\piper\voices\en_US-lessac-medium.onnx" "https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/en/en_US/lessac/medium/en_US-lessac-medium.onnx"
+
+echo %BLUE% Downloading voice model JSON config... %RESET%
+curl -L --progress-bar -o "C:\Program Files\piper\voices\en_US-lessac-medium.onnx.json" "https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/en/en_US/lessac/medium/en_US-lessac-medium.onnx.json"
+
+:: Safely append to system PATH using PowerShell to prevent the setx 1024-character truncation bug
+echo %BLUE% Adding Piper to system PATH safely... %RESET%
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$path = [Environment]::GetEnvironmentVariable('PATH', 'Machine'); if ($path -notmatch '[regex]::Escape(''C:\Program Files\piper'')') { [Environment]::SetEnvironmentVariable('PATH', $path + ';C:\Program Files\piper', 'Machine') }"
+
+echo %GREEN% Piper TTS successfully installed! %RESET%
+goto :EOF
