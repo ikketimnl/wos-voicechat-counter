@@ -93,7 +93,7 @@ async function setup() {
     const installDeps = await ask('\n📦 Install dependencies now? (Y/n): ');
     if (installDeps.toLowerCase() !== 'n') {
       console.log('Installing…');
-      execFileSync(findNpm(), ['install'], { stdio: 'inherit' });
+      execFileSync(findNpm(), ['install'], { stdio: 'inherit', shell: process.platform === 'win32' });
       console.log('✅ Dependencies installed!');
     }
 

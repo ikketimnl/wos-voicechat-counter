@@ -268,6 +268,7 @@ class UpdateManager {
           timeout: 120_000,
           env:     { ...process.env },
           stdio:   ['ignore', 'pipe', 'pipe'],
+          shell:   process.platform === 'win32',
         },
         (err, _stdout, stderr) => {
           if (err) return reject(new Error(stderr.trim() || err.message));
@@ -284,6 +285,7 @@ class UpdateManager {
         timeout: timeoutMs,
         env:     { ...process.env },
         stdio:   ['ignore', 'pipe', 'pipe'],
+        shell:   process.platform === 'win32',
       }, (err, _stdout, stderr) => {
         if (err) return reject(new Error(stderr.trim() || err.message));
         resolve();
