@@ -114,7 +114,7 @@ if exist counterbotVC (
 :: ----------------------------------------
 echo.
 echo %BLUE% Installing dependencies... %RESET%
-npm install --no-audit --no-fund
+npm install --no-audit --no-fund --no-warnings
 if %errorLevel% neq 0 (
     echo %RED% npm install failed. Check your internet connection and try again. %RESET%
     pause
